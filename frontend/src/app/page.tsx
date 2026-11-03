@@ -945,9 +945,11 @@ export default function HomePage() {
           <div>
             <b>Company</b>
             <Link href="/brands">For Brands</Link>
+            <Link href="/contact">Contact</Link>
+            <Link href="/terms">Terms</Link>
             <Link href="/privacy">Privacy</Link>
+            <Link href="/refund">Refunds &amp; cancellation</Link>
             <Link href="/data-deletion">Data deletion</Link>
-            <a href="mailto:nithindidigam@nhancio.com">Contact</a>
             <a href="https://nhancio.com" target="_blank" rel="noreferrer">
               Nhancio
             </a>
