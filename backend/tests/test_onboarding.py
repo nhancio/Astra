@@ -104,7 +104,7 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
              patch.object(me.payment_service, "create_payment_link", AsyncMock(return_value="https://example.test/pay")) as checkout:
             response = await self.client.post("/api/me/upgrade", json={"plan": "business"})
             self.assertEqual(response.status_code, 200)
-            checkout.assert_awaited_once_with("+" + PHONE, 123, plan="business")
+            checkout.assert_awaited_once_with("+" + PHONE, 123, plan="max")
             self.assertEqual((await self.client.post("/api/me/upgrade", json={"plan": "ultra"})).status_code, 422)
 
     async def test_existing_default_checkout_still_selects_pro(self):
@@ -124,13 +124,13 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.get("/api/me")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["plan"]["name"], "Business")
-        self.assertEqual(data["plan"]["price_inr"], me.settings.BUSINESS_PRICE_PAISE / 100)
-        self.assertEqual(data["usage"]["daily_limit"], me.settings.BUSINESS_DAILY_LIMIT)
+        self.assertEqual(data["plan"]["name"], "Astra Max")
+        self.assertEqual(data["plan"]["price_usd"], me.settings.MAX_PRICE_CENTS / 100)
+        self.assertEqual(data["usage"]["daily_limit"], me.settings.MAX_DAILY_LIMIT)
         plans = {plan["id"]: plan for plan in data["available_plans"]}
-        self.assertEqual(plans["pro"]["price_inr"], me.settings.MONTHLY_PRICE_PAISE / 100)
+        self.assertEqual(plans["pro"]["price_usd"], me.settings.PRO_PRICE_CENTS / 100)
         self.assertEqual(plans["pro"]["daily_limit"], me.settings.PAID_DAILY_LIMIT)
-        self.assertEqual(plans["business"]["price_inr"], me.settings.BUSINESS_PRICE_PAISE / 100)
+        self.assertEqual(plans["max"]["price_usd"], me.settings.MAX_PRICE_CENTS / 100)
 
     async def test_user_with_active_connection_auto_completes_onboarding(self):
         async with self.sessions() as session:

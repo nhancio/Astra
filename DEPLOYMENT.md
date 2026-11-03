@@ -74,8 +74,10 @@ This prevents the UI from pretending that NanoClaw deployments can run inside a 
 - `GEMINI_API_KEY`
 - `REDIS_URL`
 - `DATABASE_URL`
-- `RAZORPAY_KEY_ID`
-- `RAZORPAY_KEY_SECRET`
+- `POLAR_ACCESS_TOKEN`
+- `POLAR_WEBHOOK_SECRET`
+- `POLAR_PRO_PRODUCT_ID`
+- `POLAR_MAX_PRODUCT_ID`
 - `ADMIN_API_KEY`
 - `CORS_ALLOWED_ORIGINS=https://astra.nhancio.com`
 - `APP_URL=https://api.astra.nhancio.com`
@@ -113,8 +115,10 @@ If you prefer manual records:
 - `WHATSAPP_PHONE_NUMBER_ID`
 - `WHATSAPP_VERIFY_TOKEN`
 - `GEMINI_API_KEY`
-- `RAZORPAY_KEY_ID`
-- `RAZORPAY_KEY_SECRET`
+- `POLAR_ACCESS_TOKEN`
+- `POLAR_WEBHOOK_SECRET`
+- `POLAR_PRO_PRODUCT_ID`
+- `POLAR_MAX_PRODUCT_ID`
 - `ADMIN_API_KEY`
 - hosted `REDIS_URL`
 - hosted backend `DATABASE_URL`
@@ -132,3 +136,5 @@ If you prefer manual records:
 5. Provision one Docker-capable runtime VM
 6. Rewire `POST /api/deploy` to forward jobs to that runtime host
 7. Re-enable the live `Deploy Now -> QR -> Chat` flow
+
+Polar product IDs and the staged webhook activation steps are in [docs/polar-checkout.md](docs/polar-checkout.md).

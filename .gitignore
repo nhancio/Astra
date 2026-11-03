@@ -30,3 +30,5 @@ frontend/out-app/
 
 # Videos and marketing content live here; never committed.
 /content/
+
+frontend/out-admin/

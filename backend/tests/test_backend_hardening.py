@@ -146,7 +146,7 @@ class LegacyApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_cannot_use_unsafe_legacy_wallet_credit(self):
         key, secret = "long-random-test-admin-key-32-characters", "test-provider-secret"
         signature = hmac.new(secret.encode(), b"order_1|pay_1", hashlib.sha256).hexdigest()
-        with patch.object(settings, "ADMIN_API_KEY", key), patch.object(settings, "RAZORPAY_KEY_SECRET", secret), \
+        with patch.object(settings, "ADMIN_API_KEY", key), \
              patch.object(brands, "payment_service", SimpleNamespace(client=MagicMock()), create=True):
             response = await self.client.post("/api/brands/campaigns/1/verify-payment",
                 headers={"X-Admin-Key": key}, json={"razorpay_order_id": "order_1",

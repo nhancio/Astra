@@ -21,7 +21,7 @@ const ROWS: Row[] = [
   { name: "ChatGPT", start: "Save 1-800-242-8478", languages: "Not confirmed for WhatsApp", price: "Free tier", groups: "No", best: "Writing and conversation" },
   { name: "Perplexity", start: "Save its WhatsApp number", languages: "Not confirmed", price: "Free tier", groups: "Not confirmed", best: "Answers with cited sources" },
   { name: "Puch AI", start: "Save its WhatsApp number", languages: "Hindi, Marathi, Tamil, Telugu, Bengali, Kannada, Punjabi", price: "Reported free", groups: "Not confirmed", best: "Voice-first, many Indian languages" },
-  { name: "Astra", start: "Sign in at tryastra.web.app", languages: "English, Hindi, Hinglish, Telugu, Tamil", price: "Free 5/day · Pro ₹99/mo", groups: "No", best: "Short drafts, plans, and linked-app actions" },
+  { name: "Astra", start: "Sign in at tryastra.web.app", languages: "English, Hindi, Hinglish, Telugu, Tamil", price: "Free 5/day · Pro $1/mo", groups: "No", best: "Short drafts, plans, and linked-app actions" },
 ];
 
 const FAQ: [string, string][] = [
@@ -105,7 +105,7 @@ export default function WhatsAppAssistantsPage() {
         3–4 seconds in English, Hindi, Hinglish, Telugu or Tamil. Link Gmail, Google Calendar, Todoist or Google
         Tasks and it can send an email or add an event or task, after showing a preview and waiting for your YES.
         It does not yet understand voice notes, join group chats, or search the web. Free includes 5 messages a day;
-        Pro is ₹99 a month (10 a day) and Business ₹299 a month (30 a day). <a href="/#pricing">See plans</a>.
+        Pro is $1 a month (10 a day) and Max $5 a month (30 a day). <a href="/#pricing">See plans</a>.
       </p>
 
       <h2>Which one should you use?</h2>

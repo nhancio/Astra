@@ -7,6 +7,9 @@
       "hosting": {
         "astra": [
           "tryastra"
+        ],
+        "admin": [
+          "astraadmin"
         ]
       }
     }

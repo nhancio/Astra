@@ -3,11 +3,15 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
 
 from app.config import get_settings
+from app.models.admin import ModelCall
+from app.models.database import async_session
+from app.services.runtime import get_runtime_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -21,15 +25,13 @@ API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:gener
 class GeminiService:
     """Wrapper around Google Gemini for text and JSON generation.
 
-    Model router: classifiers (JSON) run on Flash-Lite with minimal thinking (~0.9s);
-    the user-facing answer runs on Flash with low thinking (~1.9s). Flash at its
-    default (medium) thinking measured ~3.9s per call. Flash rejects "minimal".
+    Shared configuration selects JSON, simple and complex reply models.
+    Flash-Lite uses minimal thinking; Flash uses low thinking.
     """
 
     MODEL_NAME = "gemini-3.8-flash"
     FAST_MODEL_NAME = "gemini-3.5-flash-lite"
-    # JSON checks (router, action decision): same accuracy as 3.5 on a 24-case A/B, 30% cheaper.
-    # User-facing replies stay on 3.5, which formats for WhatsApp and stays on-brand better.
+    # Defaults remain available to integrations and routing regression tests.
     JSON_MODEL_NAME = "gemini-3.1-flash-lite"
     REQUEST_TIMEOUT_SECONDS = 20
     # Flash replies measured p95 ~6s; a stalled call gets cut here and retried once on Flash-Lite
@@ -46,16 +48,34 @@ class GeminiService:
 
     async def _generate(self, model: str, thinking: str, body: dict[str, Any]) -> str:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking}
-        client = self._get_client()
-        resp = await client.post(
-            API_URL.format(model=model),
-            json=body,
-            headers={"x-goog-api-key": settings.GEMINI_API_KEY},
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Gemini {model} HTTP {resp.status_code}: {resp.text[:300]}")
-        parts = resp.json()["candidates"][0]["content"].get("parts", [])
-        return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        started = time.monotonic()
+        status, usage = "error", {}
+        try:
+            client = self._get_client()
+            resp = await client.post(API_URL.format(model=model), json=body,
+                                     headers={"x-goog-api-key": settings.GEMINI_API_KEY})
+            if resp.status_code != 200:
+                raise RuntimeError(f"Gemini {model} HTTP {resp.status_code}")
+            payload = resp.json()
+            usage = payload.get("usageMetadata", {})
+            parts = payload["candidates"][0]["content"].get("parts", [])
+            text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+            status = "success" if text else "empty"
+            return text
+        except asyncio.CancelledError:
+            status = "timeout"
+            raise
+        finally:
+            # Telemetry cannot turn an otherwise successful response into a failed reply.
+            try:
+                async with asyncio.timeout(0.5):
+                    async with async_session() as db:
+                        db.add(ModelCall(model=model, route="json" if body["generationConfig"].get("responseMimeType") else "reply",
+                                         status=status, latency_ms=round((time.monotonic() - started) * 1000),
+                                         input_tokens=usage.get("promptTokenCount"), output_tokens=usage.get("candidatesTokenCount")))
+                        await db.commit()
+            except Exception:
+                logger.warning("Model telemetry write unavailable")
 
     async def generate_response(
         self,
@@ -82,20 +102,20 @@ class GeminiService:
             }
             if json_output:
                 body["generationConfig"]["responseMimeType"] = "application/json"
-            model, thinking = (self.FAST_MODEL_NAME, "minimal") if fast else (self.MODEL_NAME, "low")
-            if fast and json_output:
-                model = self.JSON_MODEL_NAME
+            config = await get_runtime_settings()
+            model = config.json_model if fast and json_output else config.fast_model if fast else config.reply_model
+            thinking = "minimal" if "lite" in model else "low"
 
             async with asyncio.timeout(self.REQUEST_TIMEOUT_SECONDS):
-                if model != self.MODEL_NAME:
+                if fast:
                     text = await self._generate(model, thinking, body)
                 else:
                     try:
                         async with asyncio.timeout(self.FLASH_TIMEOUT_SECONDS):
                             text = await self._generate(model, thinking, body)
                     except Exception as exc:
-                        logger.warning("Gemini %s failed (%r); retrying on %s", model, exc, self.FAST_MODEL_NAME)
-                        text = await self._generate(self.FAST_MODEL_NAME, "minimal", body)
+                        logger.warning("Gemini %s failed (%r); retrying on %s", model, exc, config.fast_model)
+                        text = await self._generate(config.fast_model, "minimal" if "lite" in config.fast_model else "low", body)
             return text or FALLBACK_RESPONSE
 
         except Exception as exc:

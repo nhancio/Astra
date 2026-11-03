@@ -23,11 +23,11 @@ export interface Connection {
   status: string; configured: boolean;
 }
 export interface Plan {
-  id: "pro" | "business"; name: string; price_inr: number; daily_limit: number;
+  id: "pro" | "max"; name: string; price_usd: number; daily_limit: number;
 }
 export interface Account {
   phone_number: string; name: string | null; member_since: string | null;
-  plan: { is_premium: boolean; name: string; expires_at: string | null; price_inr: number };
+  plan: { is_premium: boolean; name: string; expires_at: string | null; price_usd: number };
   usage: { used_today: number; daily_limit: number };
   whatsapp_number: string; connections: Connection[]; available_plans: Plan[];
 }

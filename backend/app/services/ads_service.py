@@ -1,4 +1,4 @@
-"""Contextual India Native Ad Engine — monetizes free-tier WhatsApp users with high-intent Indian brand offers."""
+"""Sponsored message ads for free-tier WhatsApp users."""
 
 import logging
 import random
@@ -7,6 +7,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, case, select, update
 
 from app.config import get_settings
+from app.services.runtime import get_runtime_settings
 from app.models.database import async_session, ensure_tables
 from app.models.user import SponsoredCampaign
 
@@ -15,66 +16,86 @@ settings = get_settings()
 
 DEFAULT_INDIA_CAMPAIGNS: list[dict[str, Any]] = [
     {
-        "brand_name": "Skyscanner & MakeMyTrip",
-        "category": "travel",
-        "target_intent": "railway/flight",
-        "headline": "Flat ₹1,200 OFF on domestic flights & boutique stays when you book via UPI!",
-        "cta_text": "Use code ASTRAFLY",
-        "cta_url": "https://www.makemytrip.com/?utm_source=astra_ai_whatsapp",
+        "brand_name": "tryengage.si",
+        "category": "career",
+        "target_intent": "all",
+        "headline": "Get hired in minutes.",
+        "cta_text": "Get hired",
+        "cta_url": "https://tryengage.si",
         "cpm_inr": 320,
         "budget_paise": 500000,  # ₹5,000 seeded wallet
         "spent_paise": 0,
         "is_active": True,
     },
     {
-        "brand_name": "Swiggy Instamart / Bolt",
-        "category": "food",
-        "target_intent": "food_order",
-        "headline": "Craving midnight chai or snacks? Get ₹100 OFF + Free 10-min delivery on orders above ₹299.",
-        "cta_text": "Claim on Swiggy",
-        "cta_url": "https://www.swiggy.com/?utm_source=astra_ai_whatsapp",
+        "brand_name": "tryastra.web.app",
+        "category": "general",
+        "target_intent": "all",
+        "headline": "Go premium for unlimited messages.",
+        "cta_text": "Go premium",
+        "cta_url": "https://tryastra.web.app",
         "cpm_inr": 280,
         "budget_paise": 500000,
         "spent_paise": 0,
         "is_active": True,
     },
     {
-        "brand_name": "CRED / Fi Money",
-        "category": "finance",
-        "target_intent": "tax/upi",
-        "headline": "Pay your credit card bills or track UPI spends & earn guaranteed cashback up to ₹250.",
-        "cta_text": "Check Reward on CRED",
-        "cta_url": "https://cred.club/?utm_source=astra_ai_whatsapp",
+        "brand_name": "nhancio.com",
+        "category": "general",
+        "target_intent": "all",
+        "headline": "Build your next project with an AI-native agency.",
+        "cta_text": "Build your project",
+        "cta_url": "https://nhancio.com",
         "cpm_inr": 450,
         "budget_paise": 500000,
         "spent_paise": 0,
         "is_active": True,
     },
     {
-        "brand_name": "Instahyre & Wellfound India",
-        "category": "career",
-        "target_intent": "founder_pitch",
-        "headline": "Top funded Bengaluru, Gurgaon & Hyderabad startups are hiring engineers & PMs directly (₹20–60 LPA).",
-        "cta_text": "View Direct Founder Roles",
-        "cta_url": "https://www.instahyre.com/?utm_source=astra_ai_whatsapp",
+        "brand_name": "magicboxai.in",
+        "category": "general",
+        "target_intent": "all",
+        "headline": "Your UGC marketing factory.",
+        "cta_text": "Create UGC",
+        "cta_url": "https://magicboxai.in",
         "cpm_inr": 380,
         "budget_paise": 500000,
         "spent_paise": 0,
         "is_active": True,
     },
     {
-        "brand_name": "Zepto Pass",
-        "category": "shopping",
+        "brand_name": "heyceo.lol",
+        "category": "general",
         "target_intent": "all",
-        "headline": "Groceries, electronics & essentials in 10 mins — get flat 20% extra off with Zepto Pass.",
-        "cta_text": "Try Zepto Pass for ₹1",
-        "cta_url": "https://www.zeptonow.com/?utm_source=astra_ai_whatsapp",
+        "headline": "Join a community of CEOs.",
+        "cta_text": "Join the community",
+        "cta_url": "https://heyceo.lol",
         "cpm_inr": 260,
         "budget_paise": 500000,
         "spent_paise": 0,
         "is_active": True,
     },
+    {
+        "brand_name": "tweleb.web.app",
+        "category": "general",
+        "target_intent": "all",
+        "headline": "Monetise your Twitter audience, faster.",
+        "cta_text": "Monetise your audience",
+        "cta_url": "https://tweleb.web.app",
+        "cpm_inr": 300,
+        "budget_paise": 500000,
+        "spent_paise": 0,
+        "is_active": True,
+    },
 ]
+
+LEGACY_CAMPAIGN_URLS = {
+    "https://www.makemytrip.com/?utm_source=astra_ai_whatsapp",
+    "https://www.swiggy.com/?utm_source=astra_ai_whatsapp",
+    "https://cred.club/?utm_source=astra_ai_whatsapp",
+    "https://www.instahyre.com/?utm_source=astra_ai_whatsapp",
+    "https://www.zeptonow.com/?utm_source=astra_ai_whatsapp",
+}
 
 INTENT_TO_CATEGORY: dict[str, str] = {
     "travel_irctc": "travel",
@@ -96,15 +117,21 @@ class AdsService:
     """Manages sponsored campaigns, contextual matching, impression debits, and click tracking."""
 
     async def ensure_seeded(self) -> None:
-        """Seed default India campaigns if table is empty."""
+        """Seed message ads and retire legacy defaults, retaining their statistics."""
         try:
             await ensure_tables()
             async with async_session() as session:
-                result = await session.execute(select(SponsoredCampaign).limit(1))
-                if result.scalar_one_or_none() is not None:
+                result = await session.execute(select(SponsoredCampaign))
+                campaigns = list(result.scalars().all())
+                legacy = [camp for camp in campaigns if camp.cta_url in LEGACY_CAMPAIGN_URLS]
+                if campaigns and not legacy:
                     return
+                for camp in legacy:
+                    camp.is_active = False
+                existing_urls = {camp.cta_url for camp in campaigns}
                 for item in DEFAULT_INDIA_CAMPAIGNS:
-                    session.add(SponsoredCampaign(**item))
+                    if item["cta_url"] not in existing_urls:
+                        session.add(SponsoredCampaign(**item))
                 await session.commit()
         except Exception as exc:
             logger.debug("Ad seed skipped: %s", exc)
@@ -113,6 +140,7 @@ class AdsService:
         self, intent: str, is_premium: bool = False, is_crisis: bool = False
     ) -> Optional[str]:
         """Select an ad, debit the campaign wallet, and return the formatted WhatsApp card."""
+        settings = await get_runtime_settings()
         if not settings.ADS_ENABLED or is_premium or is_crisis or intent == "just_venting":
             return None
 

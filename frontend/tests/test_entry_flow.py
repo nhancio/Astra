@@ -9,11 +9,18 @@ class Links(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.links = []
+        self.nav_depth = 0
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
+        if tag == "nav":
+            self.nav_depth += 1
         if tag == "a":
-            self.links.append(dict(attrs))
+            self.links.append({**dict(attrs), "in_nav": self.nav_depth > 0})
+
+    def handle_endtag(self, tag):
+        if tag == "nav":
+            self.nav_depth -= 1
 
 
 class PublicEntryTests(unittest.TestCase):
@@ -38,11 +45,18 @@ class PublicEntryTests(unittest.TestCase):
         self.assertTrue(any("prompt=" in link["href"] for link in entries))
         self.assertTrue(all(link.get("target") != "_blank" for link in entries))
 
-    def test_both_paid_plans_go_directly_to_razorpay_checkout(self):
+    def test_both_paid_plans_use_hosted_checkout_entry(self):
         paths = {link.get("href") for link in self.links}
         self.assertIn("/payment/checkout?plan=pro", paths)
-        self.assertIn("/payment/checkout?plan=business", paths)
+        self.assertIn("/payment/checkout?plan=max", paths)
         self.assertNotIn("checkout.razorpay.com/v1/checkout.js", self.html)
+
+    def test_pricing_and_top_navigation_match_current_plans(self):
+        for name in ("Astra Free", "Astra Pro", "Astra Max"):
+            self.assertIn(name, self.html)
+        self.assertNotIn("Bharat Free", self.html)
+        self.assertNotIn("Astra Business", self.html)
+        self.assertFalse(any(link.get("href") == "/brands" and link["in_nav"] for link in self.links))
 
     def test_brands_portal_is_mobile_responsive_and_unlocked_for_inquiries(self):
         brands_html = (Path(__file__).resolve().parents[1] / "out/brands.html").read_text()

@@ -24,6 +24,7 @@ class DeployWorkflowTests(unittest.TestCase):
         self.env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
                     "DEPLOY_TEST_TRACE": str(self.trace), "DEPLOY_TEST_STATE": str(self.root / "state.json"),
                     "DEPLOY_TEST_REPO": str(self.repo)}
+        self.env["DEPLOY_TEST_ADMIN_KEY"] = "test-only-admin-key-" + "x" * 40
         for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
             self.env.pop(key, None)
         class Handler(BaseHTTPRequestHandler):
@@ -37,6 +38,10 @@ class DeployWorkflowTests(unittest.TestCase):
                     code, body = (200 if all(v == "ok" for v in checks.values()) else 503), {"checks": checks}
                 elif self.path == "/api/brands/campaigns":
                     code, body = 403, {}
+                elif self.path == "/api/admin/overview":
+                    authorized = self.headers.get("X-Admin-Key") == self.server.admin_key
+                    code = 200 if self.server.admin_open or (authorized and self.server.admin_key_works) else 403
+                    body = {"total_users": 0} if code == 200 else {}
                 else:
                     code, body = 200, {"status": "healthy"}
                 self.send_response(code); self.end_headers(); self.wfile.write(json.dumps(body).encode())
@@ -48,6 +53,9 @@ class DeployWorkflowTests(unittest.TestCase):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.database_ok = self.server.redis_ok = True
         self.server.login_open = False
+        self.server.admin_open = False
+        self.server.admin_key_works = True
+        self.server.admin_key = self.env["DEPLOY_TEST_ADMIN_KEY"]
         threading.Thread(target=lambda: self.server.serve_forever(poll_interval=0.02), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -90,6 +98,8 @@ if a[:2]==['run','deploy']:
  tag=a[a.index('--tag')+1] if '--tag' in a else 'legacy';state.write_text(json.dumps({'status':{'traffic':[{'tag':tag,'url':os.environ['DEPLOY_TEST_PREVIEW_URL'],'revisionName':'test-revision'}]}}))
 elif a[:3]==['run','services','describe']:
  print(state.read_text())
+elif a[:3]==['secrets','versions','access']:
+ print(os.environ['DEPLOY_TEST_ADMIN_KEY'])
 ''')
         python = self.repo / "backend/.venv/bin/python"
         python.parent.mkdir(parents=True)
@@ -231,6 +241,27 @@ if [ "$1" = - ]; then exec "$DEPLOY_TEST_PYTHON" "$@"; fi
 
     def test_broken_login_gate_prevents_promotion_and_website_deployment(self):
         self.server.login_open = True
+        self.assertNotEqual(self.deploy().returncode, 0)
+        self.assert_not_promoted()
+
+    def test_release_builds_and_publishes_both_sites_with_admin_secret_and_access_checks(self):
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        trace = self.trace.read_text()
+        self.assertIn("npm run build:sites", trace)
+        self.assertIn("--only hosting:astra,hosting:admin", trace)
+        self.assertIn("--update-secrets ADMIN_API_KEY=astra-admin-api-key:latest", trace)
+        self.assertIn('"admin_gate": 403', result.stdout)
+        self.assertIn('"admin_access": 200', result.stdout)
+        self.assertNotIn(self.env["DEPLOY_TEST_ADMIN_KEY"], result.stdout + result.stderr + trace)
+
+    def test_unprotected_admin_api_prevents_promotion_and_site_deployment(self):
+        self.server.admin_open = True
+        self.assertNotEqual(self.deploy().returncode, 0)
+        self.assert_not_promoted()
+
+    def test_invalid_admin_secret_prevents_promotion_and_site_deployment(self):
+        self.server.admin_key_works = False
         self.assertNotEqual(self.deploy().returncode, 0)
         self.assert_not_promoted()
 

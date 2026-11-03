@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.models.database import engine, ensure_tables
 from app.services.memory import memory_service
-from app.routes import admin, brands, connectors, health, me, onboarding, payment, tool_runs, webhook
+from app.routes import admin, admin_portal, brands, connectors, health, me, onboarding, payment, tool_runs, webhook
 from app.services.composio_service import ConnectorError
 from app.config import get_settings
 
@@ -50,6 +50,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
+            for module in (me, payment, webhook):
+                await module.payment_service.close()
             await memory_service.close()
         finally:
             await engine.dispose()
@@ -91,6 +93,7 @@ app.include_router(tool_runs.router)
 app.include_router(payment.router)
 app.include_router(health.router)
 app.include_router(admin.router)
+app.include_router(admin_portal.router)
 app.include_router(brands.router)
 
 

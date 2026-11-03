@@ -58,6 +58,6 @@ class EntitlementTests(unittest.IsolatedAsyncioTestCase):
     async def test_active_paid_subscription_keeps_its_allowance(self):
         await self.seed("business", True, datetime.now() + timedelta(days=1))
         result = await usage.UsageService().check_usage(PHONE)
-        self.assertEqual(result["plan_tier"], "business")
-        self.assertEqual(result["limit"], usage.settings.BUSINESS_DAILY_LIMIT)
+        self.assertEqual(result["plan_tier"], "max")
+        self.assertEqual(result["limit"], usage.settings.MAX_DAILY_LIMIT)
         self.assertTrue(result["allowed"])

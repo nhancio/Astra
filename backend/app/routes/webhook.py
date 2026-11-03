@@ -13,6 +13,8 @@ from sqlalchemy import update
 
 from app.agents import AgentOrchestrator
 from app.config import get_settings
+from app.services.runtime import get_runtime_settings
+from app.services.admin_telemetry import record_activity
 from app.models.database import async_session, ensure_tables
 from app.models.user import FlowLog
 from app.services import auth
@@ -128,6 +130,7 @@ async def process_user_message(
     except Exception:
         pass
 
+    settings = await get_runtime_settings()
     clean_text = text.lower().strip()
     norm_phone = normalize_phone(sender)
     connect_hub_url = "https://tryastra.web.app"
@@ -136,23 +139,6 @@ async def process_user_message(
     pending_reply = await chat_actions.resolve_pending(norm_phone, clean_text)
     if pending_reply:
         await whatsapp.send_message(sender, pending_reply)
-        return {"status": "ok"}
-
-    # 1. Onboarding / Greeting Command
-    if clean_text in ("/start", "hi", "hello", "hey", "namaste", "yo"):
-        first_name = sender_name.split()[0] if sender_name else "bro"
-        welcome = (
-            f"Namaste {first_name}! 🙏🇮🇳\n\n"
-            "I'm *Astra AI* — your personal AI super-agent on WhatsApp.\n\n"
-            "⚡ *What I can do for you right here:*\n"
-            "• ✍️ Draft emails, messages & cold outreach, ready to send\n"
-            "• 🗓️ Plan your day and turn goals into steps\n"
-            "• 💡 Answer questions, compare options & give advice\n"
-            "• ✅ Link Gmail, Calendar, Todoist or Google Tasks and I'll send emails or add events & tasks after you reply YES\n\n"
-            "Just text me what you need!"
-        )
-        await whatsapp.send_message(sender, welcome)
-        await memory.add_message(sender, "assistant", welcome)
         return {"status": "ok"}
 
     # 2. One-Tap App Connection Command (`/connect` or `connect gmail`)
@@ -192,25 +178,24 @@ async def process_user_message(
         return {"status": "ok"}
 
     # 2b. Direct Upgrade Command (/upgrade, upgrade, pro, business)
-    if clean_text in ("/upgrade", "upgrade", "pro", "/pro", "business", "/business"):
+    if clean_text in ("/upgrade", "upgrade", "pro", "/pro", "max", "/max", "business", "/business"):
         user = await usage_service.get_or_create_user(sender)
-        is_requesting_biz = "business" in clean_text
         pro_url = await payment_service.create_payment_link(sender, user.id, plan="pro")
-        biz_url = await payment_service.create_payment_link(sender, user.id, plan="business")
+        biz_url = await payment_service.create_payment_link(sender, user.id, plan="max")
         
-        pro_price = settings.MONTHLY_PRICE_PAISE // 100
-        biz_price = settings.BUSINESS_PRICE_PAISE // 100
+        pro_price = settings.PRO_PRICE_CENTS // 100
+        biz_price = settings.MAX_PRICE_CENTS // 100
 
         msg = (
             "⚡ *Astra AI Subscription Plans (Fair Usage Policy):*\n\n"
-            f"1️⃣ *Astra Pro — ₹{pro_price}/month (Most Popular)*\n"
+            f"1️⃣ *Astra Pro — ${pro_price}/month (Most Popular)*\n"
             f"• {settings.PAID_DAILY_LIMIT} messages/day\n"
             "• 100% Ad-Free experience\n"
-            f"👉 *Subscribe to Pro (₹{pro_price}):* {pro_url or f'{settings.FRONTEND_URL}#pricing'}\n\n"
-            f"2️⃣ *Astra Business — ₹{biz_price}/month*\n"
-            f"• {settings.BUSINESS_DAILY_LIMIT} messages/day\n"
+            f"👉 *Subscribe to Pro (${pro_price}):* {pro_url or f'{settings.FRONTEND_URL}#pricing'}\n\n"
+            f"2️⃣ *Astra Max — ${biz_price}/month*\n"
+            f"• {settings.MAX_DAILY_LIMIT} messages/day\n"
             "• 100% Ad-Free experience\n"
-            f"👉 *Subscribe to Business (₹{biz_price}):* {biz_url or f'{settings.FRONTEND_URL}#pricing'}"
+            f"👉 *Subscribe to Max (${biz_price}):* {biz_url or f'{settings.FRONTEND_URL}#pricing'}"
         )
 
         await whatsapp.send_message(sender, msg)
@@ -261,32 +246,49 @@ async def process_user_message(
         
         if current_tier == "free":
             pro_url = await payment_service.create_payment_link(sender, user.id, plan="pro")
-            pro_price = settings.MONTHLY_PRICE_PAISE // 100
+            pro_price = settings.PRO_PRICE_CENTS // 100
             upsell_text = (
                 f"You've completed your {settings.FREE_DAILY_LIMIT} free daily tasks on Astra AI! ⚡\n\n"
-                f"Upgrade to *Astra AI Pro* for just *₹{pro_price}/month* to unlock:\n"
+                f"Upgrade to *Astra AI Pro* for just *${pro_price}/month* to unlock:\n"
                 f"• {settings.PAID_DAILY_LIMIT} tasks & messages/day (FUP)\n"
                 "• 100% Zero sponsored ads\n\n"
-                f"👉 *Upgrade via UPI / Razorpay (₹{pro_price}):* {pro_url or f'{settings.FRONTEND_URL}#pricing'}"
+                f"👉 *Upgrade via Polar (${pro_price}):* {pro_url or f'{settings.FRONTEND_URL}#pricing'}"
             )
-        elif current_tier == "business":
+        elif current_tier == "max":
             upsell_text = (
-                f"You've used all {settings.BUSINESS_DAILY_LIMIT} of today's messages. ⚡\n\n"
+                f"You've used all {settings.MAX_DAILY_LIMIT} of today's messages. ⚡\n\n"
                 "Your limit resets tomorrow. See you then!"
             )
         else:
-            # Pro user hit the daily limit -> offer Business
-            biz_url = await payment_service.create_payment_link(sender, user.id, plan="business")
-            biz_price = settings.BUSINESS_PRICE_PAISE // 100
+            # Pro user hit the daily limit -> offer Max
+            biz_url = await payment_service.create_payment_link(sender, user.id, plan="max")
+            biz_price = settings.MAX_PRICE_CENTS // 100
             upsell_text = (
                 f"You've used all {settings.PAID_DAILY_LIMIT} of today's Pro messages! ⚡\n\n"
-                f"Need more room? Upgrade to *Astra Business* for *₹{biz_price}/month*:\n"
-                f"• {settings.BUSINESS_DAILY_LIMIT} messages/day\n\n"
-                f"👉 *Upgrade to Business (₹{biz_price}):* {biz_url or f'{settings.FRONTEND_URL}#pricing'}"
+                f"Need more room? Upgrade to *Astra Max* for *${biz_price}/month*:\n"
+                f"• {settings.MAX_DAILY_LIMIT} messages/day\n\n"
+                f"👉 *Upgrade to Max (${biz_price}):* {biz_url or f'{settings.FRONTEND_URL}#pricing'}"
             )
 
         await whatsapp.send_message(sender, upsell_text)
         return {"status": "limit_reached"}
+
+    # Greetings must respect the same signup and daily limits as other requests.
+    if clean_text in ("/start", "hi", "hello", "hey", "namaste", "yo"):
+        first_name = sender_name.split()[0] if sender_name else "bro"
+        welcome = (
+            f"Namaste {first_name}! 🙏🇮🇳\n\n"
+            "I'm *Astra AI* — your personal AI super-agent on WhatsApp.\n\n"
+            "⚡ *What I can do for you right here:*\n"
+            "• ✍️ Draft emails, messages & cold outreach, ready to send\n"
+            "• 🗓️ Plan your day and turn goals into steps\n"
+            "• 💡 Answer questions, compare options & give advice\n"
+            "• ✅ Link Gmail, Calendar, Todoist or Google Tasks and I'll send emails or add events & tasks after you reply YES\n\n"
+            "Just text me what you need!"
+        )
+        await whatsapp.send_message(sender, welcome)
+        await memory.add_message(sender, "assistant", welcome)
+        return {"status": "ok"}
 
     # 4. Save first, let a burst of messages settle, and only the newest one goes on to the LLM.
     await memory.add_message(sender, "user", text)
@@ -325,6 +327,7 @@ async def process_user_message(
             return {"status": "action_preview"}
 
         result = await orchestrator.process(text, history, connected_apps=active_apps)
+        await record_activity(norm_phone, result.intent, result.emotion)
         # ponytail: Gemini calls already in flight still run to completion; cancel them per
         # instance with asyncio tasks if that spend matters.
         if not await memory.is_latest(sender, message_id):

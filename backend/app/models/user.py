@@ -37,7 +37,7 @@ class User(Base):
     city = Column(String(64), nullable=True)
     preferred_language = Column(String(32), default="hinglish", nullable=False)
     is_premium = Column(Boolean, default=False, nullable=False)
-    plan_tier = Column(String(32), default="free", nullable=False)  # "free", "pro", "business" (prices in settings)
+    plan_tier = Column(String(32), default="free", nullable=False)  # free, pro, max (legacy business = max)
     premium_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -50,6 +50,19 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User {self.phone_number} premium={self.is_premium}>"
+
+
+class PolarSubscription(Base):
+    """One row per Polar subscription; retries never extend paid access."""
+
+    __tablename__ = "polar_subscriptions"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    plan_tier = Column(String(32), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, nullable=False)
+    modified_at = Column(DateTime, nullable=False)
 
 
 class UserConnection(Base):

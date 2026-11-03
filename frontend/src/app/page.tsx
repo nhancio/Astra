@@ -2,24 +2,16 @@
 
 import Link from "next/link";
 import { FAQS } from "@/lib/faq";
-import { loadWhatsAppSession, publicApi, saveWhatsAppSession } from "@/lib/account";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import styles from "./home.module.css";
 const APP_ENTRY = "/app";
+// Keep the Brands navigation code ready to re-enable.
+const SHOW_BRANDS_NAV = false;
 const startWithPrompt = (text: string) => `${APP_ENTRY}?prompt=${encodeURIComponent(text)}`;
-// Signed-in users (WhatsApp or phone OTP) pay from /app, where Razorpay opens with their verified number,
-// so it never asks for one. Guests use the anonymous checkout, where that number is how the plan is attached.
-async function openCheckout(plan: "pro" | "business") {
-  let signedIn = Boolean(loadWhatsAppSession());
-  if (!signedIn) {
-    try {
-      const { auth } = await import("@/lib/firebase");
-      await auth.authStateReady();
-      signedIn = Boolean(auth.currentUser);
-    } catch { /* Fall back to guest checkout. */ }
-  }
-  window.location.assign(signedIn ? `${APP_ENTRY}?plan=${plan}` : `/payment/checkout?plan=${plan}`);
+// Checkout uses the signed-in account's verified WhatsApp number.
+function openCheckout(plan: "pro" | "max") {
+  window.location.assign(`${APP_ENTRY}?plan=${plan}`);
 }
 const asset = (name: string) => `/poke/${name}`;
 const apps = [
@@ -219,8 +211,6 @@ export default function HomePage() {
 
   const [scrolled, setScrolled] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
-  const [waLoginTarget, setWaLoginTarget] = useState("/api/me/whatsapp-login/qr");
-  const [waChallenge, setWaChallenge] = useState<{ code: string; poll_token: string; whatsapp_url: string } | null>(null);
   useEffect(() => {
     if (window.location.hash === "#login" || new URLSearchParams(window.location.search).has("connected")) {
       window.location.replace(`/app${window.location.search}`);
@@ -235,46 +225,9 @@ export default function HomePage() {
         .then(setQrUrl)
         .catch(() => setQrUrl(""));
 
-    void renderQr(new URL("/api/me/whatsapp-login/qr", window.location.origin).href);
-
-    publicApi<{ code: string; poll_token: string; whatsapp_url: string }>("/api/me/whatsapp-login/start", {
-      method: "POST",
-    })
-      .then((res) => {
-        if (res?.whatsapp_url) {
-          setWaChallenge(res);
-          setWaLoginTarget(res.whatsapp_url);
-          void renderQr(res.whatsapp_url);
-        }
-      })
-      .catch(() => { /* fallback QR redirect (/api/me/whatsapp-login/qr) remains active */ });
+    // /app restores the browser's existing session before offering sign-in.
+    void renderQr(new URL(APP_ENTRY, window.location.origin).href);
   }, []);
-
-  useEffect(() => {
-    if (!waChallenge) return;
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const res = await publicApi<{ status: string; token?: string; phone_number?: string }>(
-          "/api/me/whatsapp-login/poll",
-          {
-            method: "POST",
-            body: JSON.stringify({ code: waChallenge.code, poll_token: waChallenge.poll_token }),
-          }
-        );
-        if (!cancelled && res.status === "verified" && res.token && res.phone_number) {
-          saveWhatsAppSession(res.token, res.phone_number);
-          window.location.assign(APP_ENTRY);
-        }
-      } catch {
-        /* ignore transient poll errors on landing page */
-      }
-    }, 2500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [waChallenge]);
 
   useEffect(() => {
     const updateHeader = () => setScrolled(window.scrollY > 70);
@@ -339,7 +292,7 @@ export default function HomePage() {
               </div>
             </details>
             <a href="#pricing">Pricing</a>
-            <Link href="/brands">For Brands</Link>
+            {SHOW_BRANDS_NAV && <Link href="/brands">For Brands</Link>}
           </nav>
           <div className={styles.headerActions}>
             <a
@@ -375,7 +328,7 @@ export default function HomePage() {
               <a href="#recipes">Recipes</a>
               <a href="#pricing">Pricing</a>
               <a href="#faq">FAQs</a>
-              <Link href="/brands">For Brands</Link>
+              {SHOW_BRANDS_NAV && <Link href="/brands">For Brands</Link>}
               <a
                 href={APP_ENTRY}
               >
@@ -420,10 +373,9 @@ export default function HomePage() {
             <Phone />
             {qrUrl && (
               <div className={styles.qrWrap}>
-                <button
-                  type="button"
+                <a
+                  href={APP_ENTRY}
                   className={styles.qrTrigger}
-                  onClick={() => window.open(waLoginTarget, "_blank", "noopener,noreferrer")}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -437,25 +389,25 @@ export default function HomePage() {
                     <path d="M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h3v3h-3zm4 4h3v3h-3zm3-4v2m-7 3v2M6 6h1m10 0h1M6 17h1" />
                   </svg>{" "}
                   Scan to get started <Icon name="chevron" size={16} />
-                </button>
-                <div
+                </a>
+                <a
+                  href={APP_ENTRY}
                   className={styles.qrPanel}
                   id="whatsapp-qr"
-                  onClick={() => window.open(waLoginTarget, "_blank", "noopener,noreferrer")}
-                  style={{ cursor: "pointer" }}
+                  style={{ display: "block" }}
                 >
                   <img
                     src={qrUrl}
                     width="200"
                     height="200"
-                    alt="Scan this QR code to sign in to Astra on WhatsApp"
+                    alt="Scan this QR code to open your Astra account"
                   />
                   <p>
                     Open your camera.
                     <br />
-                    Sign in, then open WhatsApp.
+                    Open Astra, then chat on WhatsApp.
                   </p>
-                </div>
+                </a>
               </div>
             )}
           </div>
@@ -746,10 +698,10 @@ export default function HomePage() {
           <span className={styles.billingPill}>Simple monthly pricing</span>
           <div className={styles.pricingGrid}>
             <article className={styles.plan}>
-              <h3>Bharat Free</h3>
+              <h3>Astra Free</h3>
               <p>Get started and explore what Astra can do for you</p>
               <div className={styles.price}>
-                ₹0<span>/ month</span>
+                $0<span>/ month</span>
               </div>
               <span className={styles.billingNote}>
                 Free forever · Ad-supported
@@ -785,10 +737,10 @@ export default function HomePage() {
               <h3>Astra Pro</h3>
               <p>For founders, operators, and everyday power users</p>
               <div className={styles.price}>
-                ₹99<span>/ month</span>
+                $1<span>/ month</span>
               </div>
               <span className={styles.billingNote}>
-                Billed monthly · UPI / Razorpay
+                Billed monthly · Polar
               </span>
               <div className={styles.planDivider} />
               <b className={styles.includes}>Everything in Free, plus:</b>
@@ -813,22 +765,22 @@ export default function HomePage() {
                 }}
                 className={`${styles.button} ${styles.darkButton}`}
               >
-                Get Pro (₹99) <Icon name="arrow" size={17} />
+                Get Pro ($1) <Icon name="arrow" size={17} />
               </a>
             </article>
 
-            {/* Business / Team Plan */}
+            {/* Max Plan */}
             <article className={`${styles.plan} ${styles.proPlan}`}>
               <span className={styles.planBadge}>
                 Most Room
               </span>
-              <h3>Astra Business</h3>
+              <h3>Astra Max</h3>
               <p>For people who text Astra all through the day</p>
               <div className={styles.price}>
-                ₹299<span>/ month</span>
+                $5<span>/ month</span>
               </div>
               <span className={styles.billingNote}>
-                Billed monthly · 30 days of access
+                Billed monthly · Polar
               </span>
               <div className={styles.planDivider} />
               <b className={styles.includes}>Everything in Pro, plus:</b>
@@ -844,14 +796,14 @@ export default function HomePage() {
                 ))}
               </ul>
               <a
-                href="/payment/checkout?plan=business"
+                href="/payment/checkout?plan=max"
                 onClick={(e) => {
                   e.preventDefault();
-                  void openCheckout("business");
+                  void openCheckout("max");
                 }}
                 className={`${styles.button} ${styles.darkButton}`}
               >
-                Get Business (₹299) <Icon name="arrow" size={17} />
+                Get Max ($5) <Icon name="arrow" size={17} />
               </a>
             </article>
           </div>

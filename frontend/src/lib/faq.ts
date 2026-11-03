@@ -18,7 +18,7 @@ export const FAQS: [question: string, answer: string][] = [
   ],
   [
     "Can I try Astra for free?",
-    "Yes. Bharat Free includes 5 messages a day with curated sponsored perks. Astra Pro is ₹99 per month (10 messages a day), and Astra Business is ₹299 per month (30 messages a day).",
+    "Yes. Astra Free includes 5 messages a day with curated sponsored perks. Astra Pro is $1 per month (10 messages a day), and Astra Max is $5 per month (30 messages a day).",
   ],
   [
     "Can Astra send emails or add calendar events for me?",

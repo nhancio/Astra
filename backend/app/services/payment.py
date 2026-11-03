@@ -1,389 +1,172 @@
-"""Razorpay payment integration for premium subscriptions."""
+"""Polar hosted checkout and verified monthly subscription entitlements."""
 
+import base64
+import binascii
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Optional
-from urllib.parse import urlencode
+import time
+from typing import Any
+from uuid import UUID
 
-import razorpay
-from fastapi.concurrency import run_in_threadpool
+import httpx
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.models.database import async_session, ensure_tables
-from app.models.onboarding import UserOnboarding
-from app.models.user import User
+from app.models.user import PolarSubscription, User
 from app.services.composio_service import normalize_phone
+from app.services.usage import UsageService
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 PRODUCT_TAG = "astra"
 
 
+def canonical_plan(plan: str) -> str:
+    return "max" if plan in ("max", "business") else "pro"
+
+
+def utc_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class PaymentService:
-    """Handle Razorpay payment link creation, verification, and premium activation."""
-
     def __init__(self) -> None:
-        if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
-            self.client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
-        else:
-            self.client = None
-            logger.warning("Razorpay credentials not configured")
+        self._client: httpx.AsyncClient | None = None
 
-    async def create_payment_link(
-        self, phone_number: str = "", user_id: Optional[int] = None, plan: str = "pro"
-    ) -> Optional[str]:
-        """Create a Razorpay payment link for Pro or Business (prices from settings) and return the short URL."""
-        if not self.client:
-            logger.error("Razorpay client not initialised")
-            return None
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=20)
+        return self._client
 
-        is_biz = plan.lower() in ("business", "biz", "team")
-        amount = settings.BUSINESS_PRICE_PAISE if is_biz else settings.MONTHLY_PRICE_PAISE
-        limit = settings.BUSINESS_DAILY_LIMIT if is_biz else settings.PAID_DAILY_LIMIT
-        desc = f"Astra AI {'Business' if is_biz else 'Pro'} ({limit} messages/day) - 30 Days"
-        norm_phone = normalize_phone(phone_number) if phone_number else ""
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
 
-        try:
-            notes: dict[str, str] = {
-                # The Razorpay account is shared with other products; the webhook only
-                # grants Astra plans for links carrying this marker.
-                "product": PRODUCT_TAG,
-                "plan_tier": "business" if is_biz else "pro",
-            }
-            if norm_phone:
-                notes["phone_number"] = norm_phone
-            if user_id is not None:
-                notes["user_id"] = str(user_id)
-
-            data: dict[str, Any] = {
-                "amount": amount,
-                "currency": "INR",
-                "description": desc,
-                "notify": {
-                    "sms": bool(phone_number),
-                    "email": False,
-                    "whatsapp": False,
-                },
-                "callback_url": f"{settings.APP_URL}/payment/success",
-                "callback_method": "get",
-                "notes": notes,
-            }
-            if phone_number:
-                data["customer"] = {"contact": phone_number}
-
-            link = await run_in_threadpool(self.client.payment_link.create, data)
-            short_url = link.get("short_url", "")
-            logger.info(
-                "Created payment link for %s: %s", phone_number or "direct-checkout", short_url
-            )
-            return short_url
-        except Exception as exc:
-            logger.error("Razorpay create_payment_link error: %s", exc)
-            return None
-
-    async def create_checkout_order(
-        self,
-        phone_number: str = "",
-        user_id: Optional[int] = None,
-        plan: str = "pro",
-        name: Optional[str] = None,
-    ) -> Optional[dict[str, Any]]:
-        """Create a Razorpay Order and 1-click Standard Checkout config with prefilled contact & UPI priority."""
-        if not self.client:
-            return None
-
-        is_biz = plan.lower() in ("business", "biz", "team")
-        plan_tier = "business" if is_biz else "pro"
-        amount = settings.BUSINESS_PRICE_PAISE if is_biz else settings.MONTHLY_PRICE_PAISE
-        limit = settings.BUSINESS_DAILY_LIMIT if is_biz else settings.PAID_DAILY_LIMIT
-        desc = f"Astra AI {'Business' if is_biz else 'Pro'} ({limit} messages/day) - 30 Days"
-        norm_phone = normalize_phone(phone_number) if phone_number else ""
-        clean_name = (name or "").strip()[:128]
-
-        try:
-            notes: dict[str, str] = {
-                "product": PRODUCT_TAG,
-                "plan_tier": plan_tier,
-            }
-            if norm_phone:
-                notes["phone_number"] = norm_phone
-            if clean_name:
-                notes["name"] = clean_name
-            if user_id is not None:
-                notes["user_id"] = str(user_id)
-
-            order_data: dict[str, Any] = {
-                "amount": amount,
-                "currency": "INR",
-                "receipt": f"astra_{plan_tier}_{norm_phone or 'direct'}"[:40],
-                "notes": notes,
-            }
-            order = await run_in_threadpool(self.client.order.create, order_data)
-            order_id = order.get("id", "") if isinstance(order, dict) else ""
-            if not order_id:
-                return None
-
-            prefill: dict[str, str] = {}
-            readonly: dict[str, bool] = {"contact": False, "email": True}
-            if norm_phone:
-                prefill["contact"] = f"+{norm_phone}"
-                prefill["email"] = f"{norm_phone}@tryastra.app"
-                prefill["method"] = "upi"
-                if clean_name:
-                    prefill["name"] = clean_name
-                readonly["contact"] = True
-
-            logger.info(
-                "Created 1-click checkout order %s for %s (%s)",
-                order_id,
-                norm_phone or "direct-checkout",
-                plan_tier,
-            )
-            return {
-                "key_id": settings.RAZORPAY_KEY_ID,
-                "order_id": order_id,
-                "amount": amount,
-                "currency": "INR",
-                "name": "Astra AI",
-                "description": desc,
-                "plan_tier": plan_tier,
-                "callback_url": f"{settings.APP_URL.rstrip('/')}/payment/success",
-                "notes": notes,
-                "prefill": prefill,
-                "readonly": readonly,
-                "hidden": {"email": True},
-                "config": {
-                    "display": {
-                        "blocks": {
-                            "upi": {
-                                "name": "Instant 1-Click UPI",
-                                "instruments": [{"method": "upi"}],
-                            }
-                        },
-                        "hide": [{"method": "upi", "flows": ["collect"]}],
-                        "sequence": ["block.upi"],
-                        "preferences": {"show_default_blocks": True},
-                    }
-                },
-            }
-        except Exception as exc:
-            logger.error("Razorpay create_checkout_order error: %s", exc)
-            return None
-
-    def verify_payment(self, payment_id: str, signature: str, body: bytes) -> bool:
-        """Verify a Razorpay webhook signature.
-
-        Args:
-            payment_id: The payment ID from the event.
-            signature: The X-Razorpay-Signature header value.
-            body: Raw request body bytes.
-
-        Returns:
-            True if the signature is valid.
-        """
-        # A blank secret would let anyone compute a "valid" signature and grant themselves Pro
-        secret = settings.RAZORPAY_WEBHOOK_SECRET or settings.RAZORPAY_KEY_SECRET
-        if not secret or not signature:
-            return False
-        try:
-            expected = hmac.HMAC(
-                secret.encode("utf-8"),
-                body,
-                hashlib.sha256,
-            ).hexdigest()
-            return hmac.compare_digest(expected, signature)
-        except Exception as exc:
-            logger.error("Payment verification error: %s", exc)
-            return False
-
-    @staticmethod
-    def extract_customer_details(
-        link_entity: Optional[dict[str, Any]] = None,
-        payment_entity: Optional[dict[str, Any]] = None,
-    ) -> dict[str, str]:
-        """Extract phone, name, email, and plan_tier from Razorpay payment_link and payment entities."""
-        link_entity = link_entity or {}
-        payment_entity = payment_entity or {}
-        notes = link_entity.get("notes") if isinstance(link_entity.get("notes"), dict) else {}
-        pay_notes = payment_entity.get("notes") if isinstance(payment_entity.get("notes"), dict) else {}
-        customer = link_entity.get("customer") if isinstance(link_entity.get("customer"), dict) else {}
-        cust_details = (
-            payment_entity.get("customer_details")
-            if isinstance(payment_entity.get("customer_details"), dict)
-            else {}
+    async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        if not settings.POLAR_ACCESS_TOKEN:
+            raise RuntimeError("Polar access token is not configured")
+        host = "sandbox-api.polar.sh" if settings.POLAR_SERVER == "sandbox" else "api.polar.sh"
+        response = await self._get_client().request(
+            method, f"https://{host}/v1/{path}",
+            headers={"Authorization": f"Bearer {settings.POLAR_ACCESS_TOKEN}", "Polar-Version": "2026-10"},
+            **kwargs,
         )
+        response.raise_for_status()
+        return response.json()
 
-        raw_phone = (
-            notes.get("phone_number")
-            or pay_notes.get("phone_number")
-            or customer.get("contact")
-            or payment_entity.get("contact")
-            or cust_details.get("contact")
-            or ""
-        )
-        phone = normalize_phone(str(raw_phone)) if raw_phone else ""
+    def plan_for_product(self, product_id: str) -> str | None:
+        if product_id and product_id == settings.POLAR_PRO_PRODUCT_ID:
+            return "pro"
+        if product_id and product_id == settings.POLAR_MAX_PRODUCT_ID:
+            return "max"
+        return None
 
-        raw_email = (
-            customer.get("email")
-            or payment_entity.get("email")
-            or cust_details.get("email")
-            or notes.get("email")
-            or ""
-        ).strip()
+    async def create_payment_link(self, phone_number: str = "", user_id: int | None = None, plan: str = "pro") -> str | None:
+        """Only trusted callers supply the account phone; Polar collects billing email."""
+        phone = normalize_phone(phone_number) if phone_number else ""
+        tier = canonical_plan(plan)
+        product_id = settings.POLAR_MAX_PRODUCT_ID if tier == "max" else settings.POLAR_PRO_PRODUCT_ID
+        if not phone or not product_id or not settings.POLAR_ACCESS_TOKEN:
+            return None
+        metadata: dict[str, Any] = {"product": PRODUCT_TAG, "plan_tier": tier, "phone_number": phone}
+        if user_id is not None:
+            metadata["user_id"] = str(user_id)
+        try:
+            checkout = await self._request("POST", "checkouts/", json={
+                "products": [product_id],
+                "external_customer_id": f"astra:{phone}",
+                "metadata": metadata,
+                "allow_trial": False,
+                "allow_discount_codes": False,
+                "success_url": f"{settings.APP_URL.rstrip('/')}/payment/success?checkout_id={{CHECKOUT_ID}}",
+                "return_url": f"{settings.APP_FRONTEND_URL.rstrip('/')}/app",
+            })
+            return checkout.get("url")
+        except (httpx.HTTPError, RuntimeError):
+            # Do not log provider response bodies or URLs containing checkout secrets.
+            logger.exception("Polar checkout creation failed")
+            return None
 
-        raw_name = (
-            customer.get("name")
-            or cust_details.get("name")
-            or notes.get("name")
-            or pay_notes.get("name")
-            or ""
-        ).strip()
-        if not raw_name and raw_email and "@" in raw_email:
-            local = raw_email.split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ").strip()
-            if local and not local.isdigit():
-                raw_name = local.title()[:64]
-
-        plan_raw = str(notes.get("plan_tier") or pay_notes.get("plan_tier") or "pro").lower()
-        plan_tier = "business" if plan_raw in ("business", "biz", "team") else "pro"
-
-        return {
-            "phone_number": phone,
-            "name": raw_name[:128],
-            "email": raw_email[:128],
-            "plan_tier": plan_tier,
-        }
-
-    async def activate_premium(
-        self,
-        phone_number: str,
-        plan_tier: str = "pro",
-        name: Optional[str] = None,
-    ) -> bool:
-        """Set a user to premium status (Pro or Business) for 30 days, creating the User if needed."""
-        phone_number = normalize_phone(phone_number)
-        if not phone_number:
+    def verify_webhook(self, headers: Any, body: bytes) -> bool:
+        """Validate Standard Webhooks signatures, including legacy Polar HMAC keys."""
+        secret = settings.POLAR_WEBHOOK_SECRET
+        event_id = headers.get("webhook-id", "")
+        stamp = headers.get("webhook-timestamp", "")
+        signature = headers.get("webhook-signature", "")
+        if not secret or not event_id or not signature:
             return False
-        clean_name = (name or "").strip()[:128] or None
-        expires = datetime.utcnow() + timedelta(days=30)
+        try:
+            if abs(time.time() - int(stamp)) > 300:
+                return False
+            keys = [secret.encode()]
+            encoded = secret.removeprefix("whsec_")
+            try:
+                keys.append(base64.b64decode(encoded, validate=True))
+            except (ValueError, binascii.Error):
+                pass
+            message = event_id.encode() + b"." + stamp.encode() + b"." + body
+            signatures = [part[3:] for part in signature.split() if part.startswith("v1,")]
+            return any(hmac.compare_digest(base64.b64encode(hmac.new(key, message, hashlib.sha256).digest()).decode(), candidate)
+                       for key in keys for candidate in signatures)
+        except (ValueError, TypeError):
+            return False
+
+    async def refresh_subscription(self, subscription_id: str) -> bool:
+        # Fetch current state so a delayed paid event cannot revive a revoked subscription.
+        UUID(subscription_id)
+        subscription = await self._request("GET", f"subscriptions/{subscription_id}")
+        return await self.sync_subscription(subscription)
+
+    async def sync_subscription(self, subscription: dict[str, Any]) -> bool:
+        tier = self.plan_for_product(subscription.get("product_id", ""))
+        metadata = subscription.get("metadata") or {}
+        phone = normalize_phone(str(metadata.get("phone_number") or ""))
+        if not tier or metadata.get("product") != PRODUCT_TAG or not phone:
+            return False
+        expires = utc_datetime(subscription["current_period_end"])
+        modified = utc_datetime(subscription.get("modified_at") or subscription["created_at"])
+        now = datetime.utcnow()
+        active = subscription["status"] == "active" and expires > now
+        await ensure_tables()
         async with async_session() as session:
-            result = await session.execute(
-                select(User).where(User.phone_number == phone_number)
-            )
-            user = result.scalar_one_or_none()
-            if user is None:
-                user = User(
-                    phone_number=phone_number,
-                    name=clean_name,
-                    is_premium=True,
-                    plan_tier=plan_tier,
-                    premium_expires_at=expires,
-                )
-                session.add(user)
-                try:
-                    await session.flush()
-                except IntegrityError:
-                    await session.rollback()
-                    result = await session.execute(
-                        select(User).where(User.phone_number == phone_number)
-                    )
-                    user = result.scalar_one_or_none()
-                    if user is None:
-                        return False
-
-            user.is_premium = True
-            user.plan_tier = plan_tier
-            user.premium_expires_at = expires
-            if clean_name and not user.name:
-                user.name = clean_name
-
-            if clean_name and user.id:
-                onboarding = await session.get(UserOnboarding, user.id)
-                if onboarding and not onboarding.name:
-                    onboarding.name = clean_name
-
+            user = await UsageService().get_or_create_user(phone, session=session)
+            # Serialize subscription updates for this user, including concurrent renewals.
+            user = await session.scalar(select(User).where(User.id == user.id).with_for_update())
+            stored = await session.get(PolarSubscription, subscription["id"])
+            if stored is not None and stored.modified_at > modified:
+                return True
+            await session.merge(PolarSubscription(
+                id=subscription["id"], user_id=user.id, plan_tier=tier,
+                expires_at=expires, is_active=active, modified_at=modified,
+            ))
+            await session.flush()
+            subscriptions = (await session.scalars(select(PolarSubscription).where(
+                PolarSubscription.user_id == user.id, PolarSubscription.is_active.is_(True),
+                PolarSubscription.expires_at > now,
+            ))).all()
+            best = max(subscriptions, key=lambda sub: (sub.plan_tier == "max", sub.expires_at), default=None)
+            user.is_premium = best is not None
+            user.plan_tier = best.plan_tier if best else "free"
+            user.premium_expires_at = best.expires_at if best else None
             await session.commit()
-            logger.info("Premium (%s) activated for %s until %s", plan_tier, phone_number, user.premium_expires_at)
-            return True
+        return True
 
-    async def complete_callback(self, params: dict[str, str]) -> dict[str, str]:
-        """Verify Razorpay redirect callback parameters (Order or Payment Link), fetch customer details, and activate premium."""
-        plink_id = (params.get("razorpay_payment_link_id") or "").strip()
-        order_id = (params.get("razorpay_order_id") or "").strip()
-        payment_id = (params.get("razorpay_payment_id") or "").strip()
-        ref_id = params.get("razorpay_payment_link_reference_id") or ""
-        status = (params.get("razorpay_payment_link_status") or "").strip()
-        signature = (params.get("razorpay_signature") or "").strip()
-
-        link_entity: dict[str, Any] = {}
-        order_entity: dict[str, Any] = {}
-        payment_entity: dict[str, Any] = {}
-        verified = False
-
-        if self.client and plink_id:
-            try:
-                link_entity = await run_in_threadpool(self.client.payment_link.fetch, plink_id)
-                if isinstance(link_entity, dict) and link_entity.get("status") == "paid":
-                    verified = True
-            except Exception as exc:
-                logger.warning("Could not fetch Razorpay payment_link %s: %s", plink_id, exc)
-
-        if self.client and order_id:
-            try:
-                order_entity = await run_in_threadpool(self.client.order.fetch, order_id)
-                if isinstance(order_entity, dict) and order_entity.get("status") == "paid":
-                    verified = True
-            except Exception as exc:
-                logger.warning("Could not fetch Razorpay order %s: %s", order_id, exc)
-
-        if self.client and payment_id:
-            try:
-                payment_entity = await run_in_threadpool(self.client.payment.fetch, payment_id)
-                if isinstance(payment_entity, dict) and payment_entity.get("status") in ("captured", "authorized"):
-                    verified = True
-            except Exception as exc:
-                logger.warning("Could not fetch Razorpay payment %s: %s", payment_id, exc)
-
-        if not verified and order_id and payment_id and signature and settings.RAZORPAY_KEY_SECRET:
-            payload_str = f"{order_id}|{payment_id}"
-            expected = hmac.HMAC(
-                settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
-                payload_str.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            if hmac.compare_digest(expected, signature):
-                verified = True
-
-        if not verified and plink_id and payment_id and signature and settings.RAZORPAY_KEY_SECRET:
-            payload_str = f"{plink_id}|{ref_id}|{status}|{payment_id}"
-            expected = hmac.HMAC(
-                settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
-                payload_str.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            if status == "paid" and hmac.compare_digest(expected, signature):
-                verified = True
-
-        primary_entity = link_entity or order_entity
-        details = self.extract_customer_details(primary_entity, payment_entity)
-        if not details["phone_number"] and params.get("phone"):
-            details["phone_number"] = normalize_phone(params["phone"])
-        if params.get("plan") in ("pro", "business") and not primary_entity and not payment_entity:
-            details["plan_tier"] = params["plan"]
-
-        notes = primary_entity.get("notes") if isinstance(primary_entity.get("notes"), dict) else {}
-        pay_notes = payment_entity.get("notes") if isinstance(payment_entity.get("notes"), dict) else {}
-        product = notes.get("product") or pay_notes.get("product") or PRODUCT_TAG
-        if verified and product == PRODUCT_TAG and details["phone_number"]:
-            await self.activate_premium(
-                details["phone_number"],
-                plan_tier=details["plan_tier"],
-                name=details["name"] or None,
-            )
-
-        return details
+    async def complete_callback(self, params: dict[str, str]) -> dict[str, str] | None:
+        checkout_id = params.get("checkout_id", "")
+        try:
+            UUID(checkout_id)
+        except ValueError:
+            return None
+        checkout = await self._request("GET", f"checkouts/{checkout_id}")
+        metadata = checkout.get("metadata") or {}
+        tier = self.plan_for_product(checkout.get("product_id", ""))
+        if checkout.get("status") != "succeeded" or metadata.get("product") != PRODUCT_TAG or not tier:
+            return None
+        phone = normalize_phone(str(metadata.get("phone_number") or ""))
+        subscription_id = checkout.get("subscription_id")
+        if not phone or not subscription_id or not await self.refresh_subscription(subscription_id):
+            return None
+        return {"phone_number": phone, "plan_tier": tier}

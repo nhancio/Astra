@@ -84,7 +84,7 @@ export function Login({ onBack }: { onBack?: () => void } = {}) {
     const p = new URLSearchParams(window.location.search);
     if (p.get("paid") !== "1") return null;
     return {
-      plan: p.get("plan") === "business" ? "Business" : "Pro",
+      plan: ["max", "business"].includes(p.get("plan") || "") ? "Max" : "Pro",
       name: p.get("name") || "",
       phone: p.get("phone") || "",
     };
@@ -299,85 +299,14 @@ function friendly(err: any): string {
 
 interface UpgradeResponse {
   payment_url: string;
-  checkout?: {
-    key_id: string;
-    order_id: string;
-    amount: number;
-    currency: string;
-    name: string;
-    description: string;
-    plan_tier?: string;
-    notes?: Record<string, string>;
-    prefill?: Record<string, string>;
-    readonly?: Record<string, boolean>;
-    hidden?: Record<string, boolean>;
-    config?: Record<string, unknown>;
-  };
 }
 
-function loadRazorpaySdk(): Promise<any> {
-  if (typeof window === "undefined") return Promise.resolve(null);
-  const w = window as any;
-  if (w.Razorpay) return Promise.resolve(w.Razorpay);
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    script.onload = () => resolve(w.Razorpay);
-    script.onerror = () => reject(new Error("Could not load Razorpay checkout"));
-    document.head.appendChild(script);
-  });
+async function launchPolarCheckout(res: UpgradeResponse): Promise<void> {
+  if (!res.payment_url) throw new Error("No checkout link was returned. Please try again.");
+  window.location.assign(res.payment_url);
 }
 
-async function launchRazorpayCheckout(res: UpgradeResponse, onDismiss?: () => void): Promise<void> {
-  const cfg = res.checkout;
-  if (cfg?.key_id && cfg?.order_id) {
-    try {
-      const RazorpayCtor = await loadRazorpaySdk();
-      if (RazorpayCtor) {
-        const phoneParam = cfg.notes?.phone_number || "";
-        const rzp = new RazorpayCtor({
-          key: cfg.key_id,
-          order_id: cfg.order_id,
-          amount: cfg.amount,
-          currency: cfg.currency,
-          name: cfg.name,
-          description: cfg.description,
-          notes: cfg.notes,
-          prefill: cfg.prefill,
-          readonly: cfg.readonly,
-          hidden: cfg.hidden,
-          config: cfg.config,
-          theme: { color: "#1b7a4e" },
-          handler: (response: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string }) => {
-            const q = new URLSearchParams({
-              razorpay_payment_id: response.razorpay_payment_id || "",
-              razorpay_order_id: response.razorpay_order_id || cfg.order_id,
-              razorpay_signature: response.razorpay_signature || "",
-              plan: cfg.plan_tier || "pro",
-              phone: phoneParam,
-            });
-            window.location.assign(`/payment/success?${q.toString()}`);
-          },
-          modal: {
-            ondismiss: () => {
-              onDismiss?.();
-            },
-          },
-        });
-        rzp.open();
-        return;
-      }
-    } catch {
-      // Fallback to hosted checkout URL below
-    }
-  }
-  if (res.payment_url) {
-    window.location.assign(res.payment_url);
-  }
-}
-
-function Dashboard({ user, initialMe, onSetup, prompt, requestedPlan }: { user: SessionUser; initialMe?: Me | null; onSetup: () => Promise<void>; prompt: string; requestedPlan?: "pro" | "business" }) {
+function Dashboard({ user, initialMe, onSetup, prompt, requestedPlan }: { user: SessionUser; initialMe?: Me | null; onSetup: () => Promise<void>; prompt: string; requestedPlan?: "pro" | "max" }) {
   const [me, setMe] = useState<Me | null>(initialMe ?? null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -466,7 +395,7 @@ function Dashboard({ user, initialMe, onSetup, prompt, requestedPlan }: { user: 
       const res = await api<UpgradeResponse>(user, "/api/me/upgrade", {
         method: "POST", body: JSON.stringify({ plan: requestedPlan || "pro" }),
       });
-      await launchRazorpayCheckout(res);
+      await launchPolarCheckout(res);
     } catch (e: any) {
       setToast(`⚠️ ${e.message}`);
     }
@@ -515,9 +444,9 @@ function Dashboard({ user, initialMe, onSetup, prompt, requestedPlan }: { user: 
           <div className="rounded-2xl p-5" style={{ border: "1px solid #cce0d4", background: "linear-gradient(150deg, #fffefa, #f5faf7)" }}>
             <p className="text-xs" style={{ color: "#5e6d63" }}>Plan</p>
             <p className="text-2xl font-bold mt-1" style={{ color: "#18241d" }}>{me ? me.plan.name : "—"}</p>
-            {me && upgradePlan && (!me.plan.is_premium || (requestedPlan && me.plan.name.toLowerCase() !== requestedPlan)) && (
+            {me && upgradePlan && (!me.plan.is_premium || (requestedPlan && !me.plan.name.toLowerCase().endsWith(requestedPlan))) && (
               <button onClick={upgrade} className="mt-3 text-xs font-bold px-3 py-1.5 rounded-lg" style={{ background: "#1b7a4e", color: "#fff" }}>
-                {requestedPlan ? `Continue with ${upgradePlan.name}` : "Upgrade"} · ₹{upgradePlan.price_inr}/mo
+                {requestedPlan ? `Continue with ${upgradePlan.name}` : "Upgrade"} · ${upgradePlan.price_usd}/mo
               </button>
             )}
             {me?.plan.expires_at && <p className="text-xs mt-2" style={{ color: "#5e6d63" }}>Renews {new Date(me.plan.expires_at).toLocaleDateString("en-IN")}</p>}
@@ -609,7 +538,7 @@ export function AccountEntry({ user }: { user: SessionUser }) {
   const [editingSetup, setEditingSetup] = useState(false);
   const [error, setError] = useState("");
   const [prompt, setPrompt] = useState(GREETING);
-  const [requestedPlan, setRequestedPlan] = useState<"pro" | "business" | undefined>();
+  const [requestedPlan, setRequestedPlan] = useState<"pro" | "max" | undefined>();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const key = `astra:entry:${user.uid}`;
@@ -623,7 +552,7 @@ export function AccountEntry({ user }: { user: SessionUser }) {
     const paid = params.get("paid") === "1";
     const plan = paid ? undefined : (params.get("plan") || resume.plan);
     setPrompt(prompt);
-    if (plan === "pro" || plan === "business") setRequestedPlan(plan);
+    if (plan === "pro" || plan === "max" || plan === "business") setRequestedPlan(plan === "business" ? "max" : plan);
     try { sessionStorage.setItem(key, JSON.stringify({ prompt, plan })); } catch { /* Optional resume only. */ }
   }, [user.uid]);
   const load = useCallback(async () => {
@@ -669,19 +598,19 @@ export function AccountEntry({ user }: { user: SessionUser }) {
   }, [user]);
   useEffect(() => { void load(); }, [load]);
 
-  // Pay buttons (/app?plan=…): open Razorpay as soon as the verified account is known, with no setup detour.
+  // Pay buttons (/app?plan=…): open Polar as soon as the verified account is known, with no setup detour.
   // If checkout can't start, fall back to the normal flow, whose plan buttons show the error.
   const [checkingOut, setCheckingOut] = useState(false);
   const checkoutStarted = useRef(false);
   useEffect(() => {
     if (!account || !requestedPlan || checkoutStarted.current) return;
-    if (account.plan.is_premium && account.plan.name.toLowerCase() === requestedPlan) return;
+    if (account.plan.is_premium && account.plan.name.toLowerCase().endsWith(requestedPlan)) return;
     checkoutStarted.current = true;
     setCheckingOut(true);
     api<UpgradeResponse>(user, "/api/me/upgrade", { method: "POST", body: JSON.stringify({ plan: requestedPlan }) })
       .then((res) => {
-        if (!res.payment_url && !res.checkout) throw new Error("No checkout link");
-        return launchRazorpayCheckout(res, () => setCheckingOut(false));
+        if (!res.payment_url) throw new Error("No checkout link");
+        return launchPolarCheckout(res);
       })
       .catch(() => setCheckingOut(false));
   }, [account, requestedPlan, user]);
@@ -702,7 +631,7 @@ export function AccountEntry({ user }: { user: SessionUser }) {
     return (
       <AppLoadingScreen
         title="Opening secure checkout…"
-        description={`Taking you to Razorpay to finish your ${requestedPlan === "business" ? "Business" : "Pro"} plan.`}
+        description={`Taking you to Polar to finish your ${requestedPlan === "max" ? "Max" : "Pro"} plan.`}
       />
     );
   }
@@ -735,15 +664,15 @@ export function AccountEntry({ user }: { user: SessionUser }) {
     }}
     checkout={async (plan) => {
       const result = await api<UpgradeResponse>(user, "/api/me/upgrade", { method: "POST", body: JSON.stringify({ plan }) });
-      if (!result.payment_url && !result.checkout) throw new Error("No checkout link was returned. You can continue for free.");
+      if (!result.payment_url) throw new Error("No checkout link was returned. You can continue for free.");
       await save({ step: "complete" });
-      await launchRazorpayCheckout(result);
+      await launchPolarCheckout(result);
     }} />;
 }
 
 export default function AstraApp() {
   const [firebaseUser, setFirebaseUser] = useState<User | null | undefined>(undefined);
-  const [waUser, setWaUser] = useState<SessionUser | null>(() => loadWhatsAppSession());
+  const [waUser, setWaUser] = useState<SessionUser | null>(null);
   const [exchanging, setExchanging] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, setFirebaseUser), []);
@@ -778,14 +707,6 @@ export default function AstraApp() {
   }, []);
 
   const activeUser: SessionUser | null | undefined = waUser || firebaseUser;
-  useEffect(() => {
-    if (activeUser !== null) return;
-    const params = new URLSearchParams(window.location.search);
-    const plan = params.get("plan");
-    if (params.get("paid") !== "1" && (plan === "pro" || plan === "business")) {
-      window.location.replace(`/payment/checkout?plan=${plan}`);
-    }
-  }, [activeUser]);
 
   if (exchanging || (activeUser === undefined && !waUser)) {
     return <AppLoadingScreen title="Opening Astra…" description="Checking your sign-in session." />;

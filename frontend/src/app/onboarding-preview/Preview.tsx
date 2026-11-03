@@ -8,16 +8,16 @@ import s from "@/components/onboarding/onboarding.module.css";
 const initial: Setup = { name: "Nithin", interests: ["email", "automations", "daily_brief", "travel"], step: "interests", completed: false, completed_at: null };
 const sample: Account = {
   phone_number: "", name: "Nithin", member_since: null,
-  plan: { is_premium: false, name: "Free", expires_at: null, price_inr: 99 },
-  usage: { used_today: 0, daily_limit: 15 }, whatsapp_number: "",
+  plan: { is_premium: false, name: "Astra Free", expires_at: null, price_usd: 0 },
+  usage: { used_today: 0, daily_limit: 5 }, whatsapp_number: "",
   connections: [
     { slug: "gmail", name: "Gmail", icon: "", description: "", category: "Google Workspace", status: "disconnected", configured: true },
     { slug: "googlecalendar", name: "Google Calendar", icon: "", description: "", category: "Google Workspace", status: "disconnected", configured: true },
     { slug: "notion", name: "Notion", icon: "", description: "", category: "Productivity", status: "disconnected", configured: true },
   ],
   available_plans: [
-    { id: "pro", name: "Pro", price_inr: 99, daily_limit: 80 },
-    { id: "business", name: "Business", price_inr: 999, daily_limit: 1000 },
+    { id: "pro", name: "Astra Pro", price_usd: 1, daily_limit: 10 },
+    { id: "max", name: "Astra Max", price_usd: 5, daily_limit: 30 },
   ],
 };
 

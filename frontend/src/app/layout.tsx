@@ -49,9 +49,9 @@ const siteSchema = {
       description,
       inLanguage: ["en-IN", "hi-IN"],
       offers: [
-        { "@type": "Offer", name: "Bharat Free", price: "0", priceCurrency: "INR" },
-        { "@type": "Offer", name: "Astra Pro", price: "99", priceCurrency: "INR" },
-        { "@type": "Offer", name: "Astra Business", price: "299", priceCurrency: "INR" },
+        { "@type": "Offer", name: "Astra Free", price: "0", priceCurrency: "USD" },
+        { "@type": "Offer", name: "Astra Pro", price: "1", priceCurrency: "USD" },
+        { "@type": "Offer", name: "Astra Max", price: "5", priceCurrency: "USD" },
       ],
       featureList: [
         "Draft emails and WhatsApp messages",
