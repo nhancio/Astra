@@ -1,24 +1,24 @@
 @font-face {
   font-family: OpenRunde;
-  src: url("/poke/OpenRunde-Regular.3i5t8uahr2766.woff2") format("woff2");
+  src: url("./fonts/OpenRunde-Regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: OpenRunde;
-  src: url("/poke/OpenRunde-Medium.2h62s-mncjiz2.woff2") format("woff2");
+  src: url("./fonts/OpenRunde-Medium.woff2") format("woff2");
   font-weight: 500;
   font-display: swap;
 }
 @font-face {
   font-family: OpenRunde;
-  src: url("/poke/OpenRunde-Semibold.0ajyrq9sz83xf.woff2") format("woff2");
+  src: url("./fonts/OpenRunde-Semibold.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
 @font-face {
   font-family: Exposure;
-  src: url("/poke/Exposure-205TF-VAR.1_3-0jqo3454y.woff2") format("woff2");
+  src: url("./fonts/Exposure.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
@@ -160,8 +160,7 @@
   content: "";
   position: absolute;
   inset: 0 calc((100vw - 100%) / -2);
-  background: #fffdfaf2;
-  backdrop-filter: blur(20px);
+  background: #fffdfa;
   border-bottom: 1px solid #d4d1cb80;
   z-index: -1;
 }

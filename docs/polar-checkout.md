@@ -35,9 +35,9 @@ column migration.
 
 ## Release configuration
 
-The app source has not been deployed. The existing deploy script preserves cloud
-environment settings and does **not** upload local `.env`. Before deploying,
-configure these backend-only environment values or secret references on Cloud Run:
+The deploy script preserves cloud environment settings and does **not** upload
+local `.env`. Production releases require these backend-only environment values
+or secret references on Cloud Run:
 
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_WEBHOOK_SECRET`
@@ -50,11 +50,14 @@ configure these backend-only environment values or secret references on Cloud Ru
 Remove obsolete Razorpay environment references from the service. Do not revoke
 shared Razorpay credentials belonging to other products.
 
-The dedicated Astra webhook is staged at
+The access token and webhook secret use Secret Manager secrets
+`astra-polar-access-token` and `astra-polar-webhook-secret`, pinned to a version
+in the Cloud Run revision. The database and admin secret references are retained.
+
+The dedicated Astra webhook is configured at
 `https://tryastra.web.app/payment/webhook`, endpoint ID
-`93379c6f-c0a6-4ea5-a4f5-ab58de757dd4`. It currently has no subscribed events,
-so the existing production backend will not receive incompatible deliveries.
-After deploying and checking the new backend, set its events in the Polar
+`93379c6f-c0a6-4ea5-a4f5-ab58de757dd4`. After deploying and checking the backend,
+enable the endpoint and set its events in the Polar
 dashboard (API version `2026-10`, raw format) to:
 
 - `order.paid`

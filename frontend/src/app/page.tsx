@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { FAQS } from "@/lib/faq";
 import { useEffect, useState } from "react";
-import QRCode from "qrcode";
 import styles from "./home.module.css";
 const APP_ENTRY = "/app";
 // Keep the Brands navigation code ready to re-enable.
@@ -216,17 +215,15 @@ export default function HomePage() {
       window.location.replace(`/app${window.location.search}`);
       return;
     }
-    const renderQr = (targetUrl: string) =>
-      QRCode.toDataURL(targetUrl, {
+    // /app restores the browser's existing session before offering sign-in.
+    void import("qrcode")
+      .then(({ default: QRCode }) => QRCode.toDataURL(new URL(APP_ENTRY, window.location.origin).href, {
         width: 225,
         margin: 1,
         color: { dark: "#18241d", light: "#FFFFFF" },
-      })
-        .then(setQrUrl)
-        .catch(() => setQrUrl(""));
-
-    // /app restores the browser's existing session before offering sign-in.
-    void renderQr(new URL(APP_ENTRY, window.location.origin).href);
+      }))
+      .then(setQrUrl)
+      .catch(() => setQrUrl(""));
   }, []);
 
   useEffect(() => {

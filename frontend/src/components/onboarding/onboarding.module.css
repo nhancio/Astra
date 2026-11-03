@@ -1,18 +1,18 @@
 @font-face {
   font-family: SetupRunde;
-  src: url("/poke/OpenRunde-Regular.3i5t8uahr2766.woff2") format("woff2");
+  src: url("../../app/fonts/OpenRunde-Regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: SetupRunde;
-  src: url("/poke/OpenRunde-Medium.2h62s-mncjiz2.woff2") format("woff2");
+  src: url("../../app/fonts/OpenRunde-Medium.woff2") format("woff2");
   font-weight: 500 700;
   font-display: swap;
 }
 @font-face {
   font-family: SetupExposure;
-  src: url("/poke/Exposure-205TF-VAR.1_3-0jqo3454y.woff2") format("woff2");
+  src: url("../../app/fonts/Exposure.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
