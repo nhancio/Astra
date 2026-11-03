@@ -56,14 +56,17 @@ async def lifespan(app: FastAPI):
         logger.info("Astra AI shut down")
 
 
+# API docs stay off in production so the route list isn't public.
+_public_docs = get_settings().ENVIRONMENT != "production"
+
 app = FastAPI(
     title="Astra AI — WhatsApp Super-Agent for India",
     description="Instinct + Poke + Backdoor for India on WhatsApp, powered by Composio & Gemini",
     version="2.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
+    docs_url="/api/docs" if _public_docs else None,
     redoc_url=None,
-    openapi_url="/openapi.json",
+    openapi_url="/openapi.json" if _public_docs else None,
 )
 
 settings = get_settings()
