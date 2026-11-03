@@ -15,13 +15,13 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-api_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=True)
+api_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
 
-async def verify_admin_key(api_key: str = Security(api_key_header)):
+async def verify_admin_key(api_key: str | None = Security(api_key_header)):
     """Verify the admin API key. Refuses everything until a real ADMIN_API_KEY is configured."""
     configured = settings.ADMIN_API_KEY
     # The old hard-coded default is public in git history, so it never counts as configured
-    if len(configured) < 32 or configured == "supersecretadmin123" or not hmac.compare_digest(api_key.encode(), configured.encode()):
+    if len(configured) < 32 or configured == "supersecretadmin123" or not api_key or not hmac.compare_digest(api_key.encode(), configured.encode()):
         logger.warning("Rejected admin API request with invalid key")
         raise HTTPException(status_code=403, detail="Forbidden: Invalid Admin Key")
     return api_key
@@ -67,7 +67,7 @@ async def get_admin_stats() -> dict:
 
 
 @router.get("/flows")
-async def get_flows(limit: int = 50, offset: int = 0) -> list[dict]:
+async def get_flows(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=100000)) -> list[dict]:
     """Recent webhook and message logs."""
     async with async_session() as session:
         result = await session.execute(

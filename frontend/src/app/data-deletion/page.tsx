@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Astra — Data Deletion" };
+export const metadata: Metadata = { title: "Astra — Data Deletion", alternates: { canonical: "/data-deletion" } };
 
 export default function DataDeletionPage() {
   return (

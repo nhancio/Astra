@@ -11,9 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.services.runtime import get_runtime_settings
 from app.models.database import async_session, ensure_tables
 from app.models.onboarding import UserOnboarding
-from app.models.user import User, UserUsage, VerifiedWhatsAppAccount
+from app.models.user import PolarSubscription, User, UserUsage, VerifiedWhatsAppAccount
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -51,9 +52,16 @@ class UsageService:
                 and user.premium_expires_at
                 and user.premium_expires_at < datetime.utcnow()
             ):
-                user.is_premium = False
-                user.plan_tier = "free"
-                user.premium_expires_at = None
+                # Max can expire before an overlapping Pro subscription does.
+                remaining = await session.scalar(select(PolarSubscription).where(
+                    PolarSubscription.user_id == user.id,
+                    PolarSubscription.is_active.is_(True),
+                    PolarSubscription.expires_at > datetime.utcnow(),
+                ).order_by((PolarSubscription.plan_tier == "max").desc(),
+                           PolarSubscription.expires_at.desc()).limit(1))
+                user.is_premium = remaining is not None
+                user.plan_tier = remaining.plan_tier if remaining else "free"
+                user.premium_expires_at = remaining.expires_at if remaining else None
                 await session.commit()
                 await session.refresh(user)
 
@@ -61,6 +69,7 @@ class UsageService:
 
     async def signup_state(self, phone_number: str) -> tuple[bool, int]:
         """(signed_up, preview replies left). Signed up = logged in to the app (same number, OTP) or paid."""
+        settings = await get_runtime_settings()
         await ensure_tables()
         async with async_session() as session:
             user = await self.get_or_create_user(phone_number, session=session)
@@ -80,12 +89,13 @@ class UsageService:
         Returns:
             {"allowed": bool, "remaining": int, "is_premium": bool, "plan_tier": str, "limit": int}
         """
+        settings = await get_runtime_settings()
         await ensure_tables()
         async with async_session() as session:
             user = await self.get_or_create_user(phone_number, session=session)
-            tier = ("business" if user.plan_tier == "business" else "pro") if user.is_premium else "free"
-            if tier == "business":
-                limit = settings.BUSINESS_DAILY_LIMIT
+            tier = ("max" if user.plan_tier in ("max", "business") else "pro") if user.is_premium else "free"
+            if tier == "max":
+                limit = settings.MAX_DAILY_LIMIT
             elif tier == "pro" or user.is_premium:
                 limit = settings.PAID_DAILY_LIMIT
             else:

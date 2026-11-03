@@ -51,12 +51,9 @@ class WebhookSecurityTests(unittest.IsolatedAsyncioTestCase):
                 res = await self.client.get("/admin/stats", headers={"X-Admin-Key": configured or "x"})
                 self.assertEqual(res.status_code, 403, configured)
 
-    def test_razorpay_rejects_blank_secret(self):
-        with patch.object(settings, "RAZORPAY_WEBHOOK_SECRET", ""), patch.object(settings, "RAZORPAY_KEY_SECRET", ""):
-            self.assertFalse(PaymentService().verify_payment("", sign(""), BODY))
-        with patch.object(settings, "RAZORPAY_WEBHOOK_SECRET", "rzp-secret"):
-            self.assertTrue(PaymentService().verify_payment("", sign("rzp-secret"), BODY))
-            self.assertFalse(PaymentService().verify_payment("", sign("wrong"), BODY))
+    def test_polar_rejects_blank_secret(self):
+        with patch.object(settings, "POLAR_WEBHOOK_SECRET", ""):
+            self.assertFalse(PaymentService().verify_webhook({}, BODY))
 
 
 if __name__ == "__main__":

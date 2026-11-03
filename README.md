@@ -5,7 +5,7 @@ tracks living in one repo:
 
 - **`backend/`** — a hosted FastAPI service that receives WhatsApp webhooks
   (Meta WhatsApp Cloud API), classifies emotion/intent, replies via Google Gemini,
-  enforces usage limits, and creates Razorpay payment links for premium.
+  enforces usage limits, and creates Polar checkouts for premium.
 - **`frontend/`** — a Next.js 14 app ("Deploy Now") that lets a signed-in
   user spin up their own local **NanoClaw** runtime, scan a WhatsApp QR
   code, and chat with a Claude-powered assistant.
@@ -18,7 +18,7 @@ See `context.md` for the full architecture/status breakdown and
 
 ## Stack
 
-- Backend: Python / FastAPI, SQLAlchemy, Redis, PostgreSQL, Gemini, Razorpay
+- Backend: Python / FastAPI, SQLAlchemy, Redis, PostgreSQL, Gemini, Polar
 - Frontend: Next.js 14, NextAuth (Google), Prisma, Tailwind
 - Runtime: NanoClaw (Docker-isolated Claude agent containers)
 - Infra: Docker Compose (local Redis/Postgres), Vercel (frontend + backend

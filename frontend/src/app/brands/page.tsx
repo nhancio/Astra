@@ -494,7 +494,7 @@ export default function BrandsPortal() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Swiggy, Ixigo, CRED, Zepto"
+                    placeholder="e.g. Engage, Astra, Nhancio"
                     value={brandName}
                     onChange={(e) => setBrandName(e.target.value)}
                     style={inputStyle}

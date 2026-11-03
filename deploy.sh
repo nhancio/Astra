@@ -8,6 +8,7 @@ PROJECT="${FIREBASE_PROJECT:-yell-ai-nhancio}"
 ACCOUNT="${FIREBASE_ACCOUNT:-nithindidigam@nhancio.com}"
 REGION="${CLOUD_RUN_REGION:-asia-south1}"
 REQUIRE_REDIS="${REQUIRE_REDIS:-0}"
+ADMIN_KEY_SECRET="${ADMIN_KEY_SECRET:-astra-admin-api-key}"
 GITHUB_ACCOUNT="${GITHUB_ACCOUNT:-didigamnithin}"
 BACKEND_PYTHON="${BACKEND_PYTHON:-$DIR/backend/.venv/bin/python}"
 github_token=""
@@ -192,6 +193,7 @@ main() {
     # Keep existing Cloud SQL, environment, IAM and Secret Manager configuration.
     gcloud run deploy yell-ai-api --source "$release_dir/backend" \
         --labels "git-sha=$commit,release-branch=main" --no-traffic --tag "$tag" \
+        --update-secrets "ADMIN_API_KEY=$ADMIN_KEY_SECRET:latest" \
         --region "$REGION" --project "$PROJECT" --account "$ACCOUNT" --quiet
     staged="$(gcloud run services describe yell-ai-api --region "$REGION" \
         --project "$PROJECT" --account "$ACCOUNT" \
@@ -201,27 +203,36 @@ entry=next(t for t in json.load(sys.stdin)["status"]["traffic"] if t.get("tag")=
 print(entry["revisionName"],entry["url"])
 ' "$tag")"
     read -r revision preview_url <<< "$staged"
-    "$BACKEND_PYTHON" - "$preview_url" "$REQUIRE_REDIS" <<'PY'
-import json,sys
+    "$BACKEND_PYTHON" - "$preview_url" "$REQUIRE_REDIS" "$PROJECT" "$ADMIN_KEY_SECRET" "$ACCOUNT" <<'PY'
+import json,subprocess,sys
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 
-def request(path,method="GET"):
+def request(path,method="GET",headers=None):
     try:
-        with urlopen(Request(sys.argv[1]+path,method=method),timeout=30) as response:
+        with urlopen(Request(sys.argv[1]+path,method=method,headers=headers or {}),timeout=30) as response:
             return response.status,json.load(response)
     except HTTPError as error:
         return error.code,json.load(error)
 
+admin_key=subprocess.check_output([
+    "gcloud","secrets","versions","access","latest","--secret",sys.argv[4],
+    "--project",sys.argv[3],"--account",sys.argv[5]],text=True).strip()
+if len(admin_key)<32:
+    raise SystemExit("Admin access secret is invalid; live traffic was not changed.")
+admin_status,admin_body=request("/api/admin/overview",headers={"X-Admin-Key":admin_key})
 ready_status,ready=request("/ready")
 dependencies=ready.get("checks",{})
 checks={"health":request("/health")[0],"login_gate":request("/api/me/session","POST")[0],
-        "campaign_admin_gate":request("/api/brands/campaigns")[0],"dependencies":dependencies}
+        "campaign_admin_gate":request("/api/brands/campaigns")[0],
+        "admin_gate":request("/api/admin/overview")[0],"admin_access":admin_status,
+        "admin_schema":isinstance(admin_body.get("total_users"),int),"dependencies":dependencies}
 print(json.dumps(checks))
 healthy=ready_status==200 and dependencies=={"database":"ok","memory":"ok"}
 fallback=(sys.argv[2]=="0" and ready_status==503
           and dependencies=={"database":"ok","memory":"unavailable"})
-if not (healthy or fallback) or (checks["health"],checks["login_gate"],checks["campaign_admin_gate"])!=(200,401,403):
+if (not (healthy or fallback) or not checks["admin_schema"]
+    or tuple(checks[k] for k in ("health","login_gate","campaign_admin_gate","admin_gate","admin_access"))!=(200,401,403,403,200)):
     raise SystemExit("Backend smoke checks failed; live traffic was not changed.")
 if fallback:
     print("Warning: shared memory is unavailable. Set REQUIRE_REDIS=1 to block this release.",file=sys.stderr)
@@ -231,11 +242,11 @@ PY
         --remove-tags "$tag" --region "$REGION" --project "$PROJECT" --account "$ACCOUNT" --quiet
     (
         cd "$release_dir"
-        npx -y firebase-tools@latest deploy --only hosting:astra --project "$PROJECT" \
+        npx -y firebase-tools@latest deploy --only hosting:astra,hosting:admin --project "$PROJECT" \
             --account "$ACCOUNT" --non-interactive --message "main-$commit"
     )
     verify_main
-    printf '\nDeployed main %s to https://tryastra.web.app\n' "$commit"
+    printf '\nDeployed main %s to https://tryastra.web.app and https://astraadmin.web.app\n' "$commit"
     exit 0
 }
 

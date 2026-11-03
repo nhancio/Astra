@@ -10,6 +10,16 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title,
   description,
+  keywords: [
+    "AI assistant on WhatsApp",
+    "WhatsApp AI assistant India",
+    "AI chatbot on WhatsApp in Hindi",
+    "Hinglish AI assistant",
+    "personal AI assistant",
+    "ChatGPT on WhatsApp alternative",
+  ],
+  // Pages that are indexed set their own canonical; this covers "/" (the home page is a client component).
+  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     siteName: "Astra AI",
@@ -22,21 +32,36 @@ export const metadata: Metadata = {
   icons: { icon: "/brand/astra-meta-icon-transparent-1024.png", apple: "/brand/astra-meta-icon-1024.png" },
 };
 
-const appSchema = {
+const org = { "@type": "Organization", "@id": "https://nhancio.com/#org", name: "Nhancio", url: "https://nhancio.com", email: "nithindidigam@nhancio.com" };
+
+const siteSchema = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Astra AI",
-  url: SITE_URL,
-  applicationCategory: "LifestyleApplication",
-  operatingSystem: "WhatsApp",
-  description,
-  inLanguage: ["en-IN", "hi-IN"],
-  offers: [
-    { "@type": "Offer", name: "Bharat Free", price: "0", priceCurrency: "INR" },
-    { "@type": "Offer", name: "Astra Pro", price: "99", priceCurrency: "INR" },
-    { "@type": "Offer", name: "Astra Business", price: "299", priceCurrency: "INR" },
+  "@graph": [
+    org,
+    { "@type": "WebSite", "@id": `${SITE_URL}/#website`, name: "Astra AI", url: SITE_URL, inLanguage: "en-IN", publisher: { "@id": org["@id"] } },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#app`,
+      name: "Astra AI",
+      url: SITE_URL,
+      applicationCategory: "LifestyleApplication",
+      operatingSystem: "WhatsApp",
+      description,
+      inLanguage: ["en-IN", "hi-IN"],
+      offers: [
+        { "@type": "Offer", name: "Astra Free", price: "0", priceCurrency: "USD" },
+        { "@type": "Offer", name: "Astra Pro", price: "1", priceCurrency: "USD" },
+        { "@type": "Offer", name: "Astra Max", price: "5", priceCurrency: "USD" },
+      ],
+      featureList: [
+        "Draft emails and WhatsApp messages",
+        "Plan your day",
+        "Replies in English, Hindi, Hinglish, Telugu and Tamil",
+        "Send Gmail, add Google Calendar events and Todoist or Google Tasks tasks after you confirm",
+      ],
+      publisher: { "@id": org["@id"] },
+    },
   ],
-  publisher: { "@type": "Organization", name: "Nhancio", url: SITE_URL },
 };
 
 export default function RootLayout({
@@ -45,9 +70,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en-IN">
       <body className="antialiased min-h-screen font-sans bg-[#070b14] text-slate-100">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(appSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(siteSchema) }} />
         {children}
       </body>
     </html>

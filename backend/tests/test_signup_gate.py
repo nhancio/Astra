@@ -66,13 +66,17 @@ class _FlowLogSink:
 
 
 class WebhookGateTests(unittest.IsolatedAsyncioTestCase):
-    async def run_message(self, state, first_today=True, latest=True, history=(), text="plan my week"):
+    async def run_message(self, state, first_today=True, latest=True, history=(), text="plan my week", usage_status=None):
         send = AsyncMock()
         process = AsyncMock(return_value=SimpleNamespace(
             full_response="Here you go", required_toolkit=None, intent="general",
             is_crisis=False, emotion=None))
-        with patch.object(webhook.usage_service, "signup_state", AsyncMock(return_value=state)), \
-             patch.object(webhook.usage_service, "check_usage", AsyncMock(return_value={"allowed": True})), \
+        with patch.object(webhook, "get_runtime_settings", AsyncMock(return_value=webhook.settings)), \
+             patch.object(webhook.chat_actions, "resolve_pending", AsyncMock(return_value=None)), \
+             patch.object(webhook.usage_service, "get_or_create_user", AsyncMock(return_value=SimpleNamespace(id=1))), \
+             patch.object(webhook.payment_service, "create_payment_link", AsyncMock(return_value="https://checkout.example/pro")), \
+             patch.object(webhook.usage_service, "signup_state", AsyncMock(return_value=state)), \
+             patch.object(webhook.usage_service, "check_usage", AsyncMock(return_value=usage_status or {"allowed": True})), \
              patch.object(webhook.usage_service, "increment_usage", AsyncMock()), \
              patch.object(webhook.whatsapp, "send_message", send), \
              patch.object(webhook.orchestrator, "process", process), \
@@ -86,6 +90,30 @@ class WebhookGateTests(unittest.IsolatedAsyncioTestCase):
              patch.object(webhook, "BURST_WAIT_SECONDS", 0):
             result = await webhook.process_user_message(PHONE, text, "wamid.1", "Ravi Kumar", 0)
         return result, process, send.await_args.args[1] if send.await_args else None
+
+    async def test_greetings_respect_exhausted_daily_limit_for_every_plan(self):
+        for tier in ("free", "pro", "max"):
+            for text in ("Hello", "hi", "hey", "namaste", "yo", "/start"):
+                with self.subTest(tier=tier, text=text):
+                    result, _, reply = await self.run_message(
+                        (True, 0), text=text,
+                        usage_status={"allowed": False, "plan_tier": tier})
+                    self.assertEqual(result, {"status": "limit_reached"})
+                    self.assertNotIn("What I can do", reply)
+                    self.assertIn("month" if tier != "max" else "resets tomorrow", reply)
+
+    async def test_greeting_cannot_bypass_exhausted_signup_preview(self):
+        result, _, reply = await self.run_message((False, 0), text="Hello")
+        self.assertEqual(result, {"status": "signup_required"})
+        self.assertIn("30-second setup", reply)
+
+    async def test_greeting_is_available_again_when_usage_resets(self):
+        blocked, _, _ = await self.run_message(
+            (True, 0), text="hello", usage_status={"allowed": False, "plan_tier": "free"})
+        self.assertEqual(blocked, {"status": "limit_reached"})
+        allowed, _, reply = await self.run_message((True, 0), text="hello")
+        self.assertEqual(allowed, {"status": "ok"})
+        self.assertIn("Namaste Ravi", reply)
 
     async def test_exhausted_preview_sends_onboarding_link_without_ai(self):
         result, process, reply = await self.run_message((False, 0))

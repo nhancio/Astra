@@ -58,22 +58,24 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:////tmp/astra.db"
     BACKEND_DATABASE_URL: str = ""
 
-    # Razorpay
-    RAZORPAY_KEY_ID: str = ""
-    RAZORPAY_KEY_SECRET: str = ""
-    RAZORPAY_WEBHOOK_SECRET: str = ""  # Dashboard webhook secret; falls back to RAZORPAY_KEY_SECRET
+    # Polar hosted monthly subscriptions (credentials stay on the backend)
+    POLAR_ACCESS_TOKEN: str = ""
+    POLAR_WEBHOOK_SECRET: str = ""
+    POLAR_PRO_PRODUCT_ID: str = ""
+    POLAR_MAX_PRODUCT_ID: str = ""
+    POLAR_SERVER: Literal["production", "sandbox"] = "production"
 
     # Usage limits: Fair Usage Policy (FUP) & Tiers
     # Each reply costs ~₹0.30 (Gemini + Meta + Cloud Run, Oct 2026), so caps keep every paid plan above cost.
     FREE_DAILY_LIMIT: int = 5  # Free tier: 5 messages/day (ad-supported)
-    PAID_DAILY_LIMIT: int = 10  # Pro (₹99/mo): 10 messages/day
-    BUSINESS_DAILY_LIMIT: int = 30  # Business (₹299/mo): 30 messages/day
+    PAID_DAILY_LIMIT: int = 10  # Pro ($1/mo): 10 messages/day
+    MAX_DAILY_LIMIT: int = 30  # Max ($5/mo): 30 messages/day
     SIGNUP_PREVIEW_MESSAGES: int = 2  # Lifetime AI replies a number gets before it must log in to the app
     ADS_ENABLED: bool = True
 
     # Pricing
-    MONTHLY_PRICE_PAISE: int = 9900  # Pro: ₹99/mo (9900 paise)
-    BUSINESS_PRICE_PAISE: int = 29900  # Business: ₹299/mo (29900 paise)
+    PRO_PRICE_CENTS: int = 100  # Pro: $1/month
+    MAX_PRICE_CENTS: int = 500  # Max: $5/month
 
     # Production Hardening
     ADMIN_API_KEY: str = ""  # Admin routes refuse every request until this is set

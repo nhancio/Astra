@@ -102,7 +102,7 @@ export default function Onboarding({ account, setup, save, connect, checkout, on
   }
 
   const skip = { label: step === "plan" ? "Not now" : "Set up later", action: () => { void advance("complete"); } };
-  const money = (value: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: Number.isInteger(value) ? 0 : 2 }).format(value);
+  const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: Number.isInteger(value) ? 0 : 2 }).format(value);
 
   return <SetupFrame index={index + 2} skip={skip} busy={busy}>
     <section ref={content} key={step} className={s.content} aria-busy={busy}>
@@ -168,9 +168,9 @@ export default function Onboarding({ account, setup, save, connect, checkout, on
             <input className={s.srOnly} type="radio" name="setup-plan" value={plan.id} checked={selectedPlan === plan.id} onChange={() => setSelectedPlan(plan.id)} disabled={busy} />
             <span className={s.planName}>{plan.name}</span>
             <span className={s.planDescription}>{plan.id === "pro" ? "More room for the everyday things you ask Astra." : "A larger allowance for the days you have more to do."}</span>
-            <span className={s.price}>{money(plan.price_inr)} <small>/ month</small></span>
-            <span className={s.billingNote}>30 days of access</span>
-            {plan.id === "business" && <>
+            <span className={s.price}>{money(plan.price_usd)} <small>/ month</small></span>
+            <span className={s.billingNote}>Billed monthly</span>
+            {plan.id === "max" && <>
               <span className={s.featuresTitle}>A little more breathing room:</span>
               <ul className={s.features}>
                 <li><Icon name="check" size={12} />Up to {plan.daily_limit.toLocaleString("en-IN")} messages each day</li>

@@ -120,6 +120,48 @@ class AtomicAndLatencyOptimizationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(updated.is_active)
             self.assertEqual(updated.clicks, 4)
 
+    async def test_ad_seeding_retires_legacy_campaigns_without_losing_stats_or_duplicates(self):
+        async with self.sessions() as session:
+            legacy = SponsoredCampaign(
+                brand_name="Zepto Pass", category="shopping", target_intent="all",
+                headline="Old offer", cta_text="Shop",
+                cta_url="https://www.zeptonow.com/?utm_source=astra_ai_whatsapp",
+                impressions=12, clicks=3, spent_paise=312, is_active=True,
+            )
+            custom = SponsoredCampaign(
+                brand_name="Custom Brand", category="general", target_intent="all",
+                headline="Custom offer", cta_text="Visit", cta_url="https://example.test/ad",
+                is_active=True,
+            )
+            session.add_all([legacy, custom])
+            await session.commit()
+            legacy_id, custom_id = legacy.id, custom.id
+
+        ads = AdsService()
+        await ads.ensure_seeded()
+        await ads.ensure_seeded()
+
+        async with self.sessions() as session:
+            rows = list((await session.scalars(select(SponsoredCampaign))).all())
+            self.assertEqual(len(rows), 8)
+            retired = await session.get(SponsoredCampaign, legacy_id)
+            self.assertFalse(retired.is_active)
+            self.assertEqual((retired.impressions, retired.clicks, retired.spent_paise), (12, 3, 312))
+            self.assertTrue((await session.get(SponsoredCampaign, custom_id)).is_active)
+            replacements = [row for row in rows if row.id not in {legacy_id, custom_id}]
+            self.assertEqual({row.cta_url for row in replacements}, {
+                "https://tryengage.si", "https://tryastra.web.app", "https://nhancio.com",
+                "https://magicboxai.in", "https://heyceo.lol", "https://tweleb.web.app",
+            })
+            self.assertTrue(all(row.is_active and row.target_intent == "all" for row in replacements))
+            paused_id = replacements[0].id
+            replacements[0].is_active = False
+            await session.commit()
+
+        await ads.ensure_seeded()
+        async with self.sessions() as session:
+            self.assertFalse((await session.get(SponsoredCampaign, paused_id)).is_active)
+
     async def test_get_user_connections_skips_remote_http_when_user_has_no_stored_connections(self):
         requests = []
 
@@ -167,14 +209,10 @@ class AtomicAndLatencyOptimizationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0].status, "active")
 
-    async def test_razorpay_create_payment_link_runs_in_threadpool(self):
+    async def test_polar_uses_a_reusable_async_http_client(self):
         svc = PaymentService()
-        svc.client = MagicMock()
-        svc.client.payment_link.create.return_value = {"short_url": "https://rzp.io/i/test"}
-        with patch.object(payment_module, "run_in_threadpool", wraps=payment_module.run_in_threadpool) as pool:
-            url = await svc.create_payment_link(PHONE, 1, "pro")
-            self.assertEqual(url, "https://rzp.io/i/test")
-            pool.assert_awaited_once()
+        self.assertIs(svc._get_client(), svc._get_client())
+        await svc.close()
 
     async def test_webhook_dedup_uses_shared_atomic_claim_once_and_login_challenge_cannot_be_overwritten(self):
         with patch.object(webhook_module, "PROCESSED_MESSAGE_IDS", {}), \

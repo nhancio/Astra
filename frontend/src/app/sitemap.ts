@@ -4,8 +4,9 @@ import { SITE_URL } from "@/lib/site";
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return ["", "/whatsapp-ai-assistants", "/brands", "/privacy", "/data-deletion"].map((path) => ({
+  return ["", "/whatsapp-ai-assistants", "/brands", "/privacy", "/data-deletion", "/terms", "/refund", "/contact"].map((path) => ({
     url: `${SITE_URL}${path}`,
+    lastModified: new Date(),
     changeFrequency: path ? "monthly" : "weekly",
     priority: path ? 0.5 : 1,
   }));
