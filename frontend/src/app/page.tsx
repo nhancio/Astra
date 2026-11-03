@@ -399,7 +399,7 @@ export default function HomePage() {
             your new favorite contact
           </h1>
           <p className={styles.heroSubtitle}>
-            Your personal AI assistant, right in your WhatsApp
+            Your personal AI assistant, right in your WhatsApp. Text it in English, Hindi or Hinglish.
           </p>
           <div className={styles.heroActions}>
             <a
@@ -985,6 +985,7 @@ export default function HomePage() {
             <b>Resources</b>
             <a href="#integrations">Integrations</a>
             <a href="#faq">FAQs</a>
+            <Link href="/whatsapp-ai-assistants">WhatsApp AI assistants compared</Link>
             <a href={APP_ENTRY}>
               WhatsApp
             </a>
@@ -992,6 +993,8 @@ export default function HomePage() {
           <div>
             <b>Company</b>
             <Link href="/brands">For Brands</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/data-deletion">Data deletion</Link>
             <a href="mailto:nithindidigam@nhancio.com">Contact</a>
             <a href="https://nhancio.com" target="_blank" rel="noreferrer">
               Nhancio

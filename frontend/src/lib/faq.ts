@@ -20,4 +20,12 @@ export const FAQS: [question: string, answer: string][] = [
     "Can I try Astra for free?",
     "Yes. Bharat Free includes 5 messages a day with curated sponsored perks. Astra Pro is ₹99 per month (10 messages a day), and Astra Business is ₹299 per month (30 messages a day).",
   ],
+  [
+    "Can Astra send emails or add calendar events for me?",
+    "Yes, once you link the app. With Gmail, Google Calendar, Todoist or Google Tasks linked, Astra shows you a preview and only sends the email or adds the event or task after you reply YES.",
+  ],
+  [
+    "Can Astra read my other WhatsApp chats?",
+    "No. Astra only sees the messages you send to it. It can't read your other chats or groups, and it never messages you first.",
+  ],
 ];

@@ -7,6 +7,12 @@ export const metadata: Metadata = {
   description:
     "Meta AI, ChatGPT, Perplexity, Puch AI and Astra on WhatsApp, compared for India: languages, price in ₹, how to start, and what each is best at.",
   alternates: { canonical: "/whatsapp-ai-assistants" },
+  openGraph: {
+    url: "/whatsapp-ai-assistants",
+    title: "Best AI Assistants on WhatsApp in India (2026), Compared",
+    description: "Meta AI, ChatGPT, Perplexity, Puch AI and Astra on WhatsApp, compared for India.",
+    images: ["/og.png"],
+  },
 };
 
 type Row = { name: string; start: string; languages: string; price: string; groups: string; best: string };

@@ -6,6 +6,9 @@
 - How to start: tap Get Started, sign in with your WhatsApp number, then text Astra on WhatsApp. No app download.
 - Plans: Bharat Free (5 messages/day, with sponsored perks), Astra Pro ₹99/month (10 messages/day), Astra Business ₹299/month (30 messages/day).
 - Astra gives ready-to-use drafts and plans. With Gmail, Google Calendar, Todoist or Google Tasks linked, it can send an email or add an event or task after showing a preview and waiting for the user's YES.
+- Languages: English, Hindi, Hinglish, Telugu and Tamil. Replies in about 3–4 seconds, kept short enough to read on a phone.
+- Astra only sees messages sent to it, cannot read other chats or groups, and never messages first.
 - Comparison of AI assistants on WhatsApp in India: https://tryastra.web.app/whatsapp-ai-assistants
 - Privacy policy: https://tryastra.web.app/privacy
 - Data deletion: https://tryastra.web.app/data-deletion
+- Sitemap: https://tryastra.web.app/sitemap.xml
